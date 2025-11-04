@@ -5,9 +5,10 @@ import re
 import numpy as np
 from rapidfuzz import fuzz
 from sentence_transformers import SentenceTransformer, util
+import os
 
 # Load embedding model for semantic similarity
-model_path = r"C:\Coding\Models\all-MiniLM-L6-v2"
+model_path = os.path.join("models", "all-MiniLM-L6-v2")
 embedding_model = SentenceTransformer(model_path)
 
 def semantic_similarity(text1: str, text2: str) -> float:
