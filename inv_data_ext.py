@@ -49,7 +49,7 @@ def clean_inv_text(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     cleaned_text = " ".join(lines)
     cleaned_text = ' '.join(cleaned_text.split())  # collapse multiple spaces
-    print(f"CLEANED INVOICE TEXT:\n {cleaned_text}")
+    # print(f"CLEANED INVOICE TEXT:\n {cleaned_text}")
     return cleaned_text
 
 def extract_invoice(pdf_path: str) -> Invoice:
@@ -152,3 +152,4 @@ def extract_invoice(pdf_path: str) -> Invoice:
 # --------------------------
 if __name__ == "__main__":
     extract_invoice(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\EQS_inv.pdf")
+
