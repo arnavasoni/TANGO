@@ -56,7 +56,7 @@ def extract_text_from_pdf(pdf_path: str) -> Optional[str]:
         docs = loader.load()
         awb_text = docs[0].page_content.strip()
         if awb_text:
-            print(f"AWB TEXT:\n{awb_text}")
+            # print(f"AWB TEXT:\n{awb_text}")
             return awb_text
     except Exception:
         pass
@@ -70,7 +70,7 @@ def clean_awb_text(text):
     cleaned_text = " ".join(lines)
     # Optionally, collapse multiple spaces into one
     cleaned_text = ' '.join(cleaned_text.split())
-    print(f"CLEANED TEXT: {cleaned_text}")
+    # print(f"CLEANED TEXT: {cleaned_text}")
     return cleaned_text
 
 
@@ -293,3 +293,4 @@ if __name__ == "__main__":
     extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBAG_Prod_Parts_AWB.pdf")
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBUSI_AWB.PDF")
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\EQS_awb.PDF")
+
