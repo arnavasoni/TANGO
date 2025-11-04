@@ -3,7 +3,7 @@ from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
 from pydantic import BaseModel
 from langchain_groq import ChatGroq
-from typing import Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 
 import os
 from dotenv import load_dotenv
@@ -41,6 +41,17 @@ class Invoice(BaseModel):
 
 invoice_parser = PydanticOutputParser(pydantic_object=Invoice)
 
+# --------------------------
+# 2. Clean Invoice Text
+# --------------------------
+def clean_inv_text(text: str) -> str:
+    """Normalize invoice page text: remove extra whitespace and join lines."""
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    cleaned_text = " ".join(lines)
+    cleaned_text = ' '.join(cleaned_text.split())  # collapse multiple spaces
+    print(f"CLEANED INVOICE TEXT:\n {cleaned_text}")
+    return cleaned_text
+
 def extract_invoice(pdf_path: str) -> Invoice:
     loader = PyPDFLoader(pdf_path, extract_images = False)
     docs = loader.load() # Returns a list of Document objects, one per page
@@ -75,7 +86,7 @@ def extract_invoice(pdf_path: str) -> Invoice:
     # --------------------------
     raw_results = []
     for doc in docs:
-        page_text = doc.page_content
+        page_text = clean_inv_text(doc.page_content)
         raw_chain = raw_prompt | llm
         raw_output = raw_chain.invoke({"page_text": page_text})
         raw_results.append(raw_output.content)
@@ -137,6 +148,7 @@ def extract_invoice(pdf_path: str) -> Invoice:
     return invoice_structured
 
 # --------------------------
-# 9. Check result
+# 4. Example usage
 # --------------------------
-# print(invoice_structured)
+if __name__ == "__main__":
+    extract_invoice(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\EQS_inv.pdf")
