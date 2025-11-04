@@ -49,7 +49,7 @@ def clean_inv_text(text: str) -> str:
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     cleaned_text = " ".join(lines)
     cleaned_text = ' '.join(cleaned_text.split())  # collapse multiple spaces
-    # print(f"CLEANED INVOICE TEXT:\n {cleaned_text}")
+    print(f"CLEANED INVOICE TEXT:\n{cleaned_text}\n\n")
     return cleaned_text
 
 def extract_invoice(pdf_path: str) -> Invoice:
@@ -99,34 +99,25 @@ def extract_invoice(pdf_path: str) -> Invoice:
     # --------------------------
     refine_prompt = ChatPromptTemplate.from_messages(
         [
-            ("system", """
-            You are an expert in invoice processing.
-            Clean, normalize, and deduplicate extracted invoice data.
-            Map equivalent fields across templates.
-            Format output strictly as JSON according to the given schema.
-            """),
-            ("human", """
-            Rules:
-                - If fields are missing, leave them null.
-                - Use the following conventions for numeric fields:
-                    - In the invoices, **commas are used as decimal separators** instead of periods.
-                    - For example, "0,800" should be converted to `0.8`, and "42,000" should be converted to `42.0`.
-                    - Always convert such values to **standard decimal format** with a period as the decimal separator.
-                    - Remove **all units** (e.g., 'KG') from the output.
-                    Example:
-                        - "Gross Weight: 2,914 KG" → "gross_weight": "2.914"
-                        - "Gross Weight: 0,800 KG" → "gross_weight": "0.8"
-                - DO NOT hallucinate values.
-                - For `order_no`: Extract a 10-digit number in the format "XX XXX XXXXX" (usually found near 'order number'). Example: '05 825 12011' or '0 5 825 12011' -> Return as '0582512011'
-                - For `vin_no`: Extract a 17-character alphanumeric string (usually near 'chassis no'), starting with 'W1ND'.
-                - If invoice contains unexpected fields, store them in 'other_fields' as a key:value dictionary.
-            Schema: {schema}
+            ("system", """You are an expert invoice processor. Output valid JSON matching the schema exactly. Prioritize accuracy over completeness."""),
+            ("human", """CRITICAL - Numeric Conversion Rules:
+                - European commas → decimal periods
+                - Strip ALL units (KG, kg, etc.)
+                - Examples: "0,800 KG" → 0.8 | "42,000 KG" → 42.0 | "2,914 KG" → 2.914 | "4,960 KG" → 4.960
+                - Do NOT hallucinate values
 
-            Raw Data: \n\n {raw_data}
-            """    
-            )
+                Field Rules:
+                - gross_weight: Numeric string, no units, decimal period (null if missing)
+                - order_no: 10-digit continuous (e.g., "05 825 12011" → "0582512011")
+                - vin_no: 17-char alphanumeric starting "W1ND"
+                - Missing fields: null
+                - Unknown fields: other_fields dict
+
+                Schema: {schema}
+                Raw Data: {raw_data}""")
         ]
     )
+
 
     # --------------------------
     # 7. Refinement chain
