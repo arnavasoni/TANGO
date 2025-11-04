@@ -56,7 +56,7 @@ def extract_text_from_pdf(pdf_path: str) -> Optional[str]:
         docs = loader.load()
         awb_text = docs[0].page_content.strip()
         if awb_text:
-            # print(f"AWB TEXT:\n{awb_text}")
+            print(f"AWB TEXT:\n{awb_text}")
             return awb_text
     except Exception:
         pass
@@ -70,7 +70,7 @@ def clean_awb_text(text):
     cleaned_text = " ".join(lines)
     # Optionally, collapse multiple spaces into one
     cleaned_text = ' '.join(cleaned_text.split())
-    # print(f"CLEANED TEXT: {cleaned_text}")
+    print(f"CLEANED TEXT: {cleaned_text}")
     return cleaned_text
 
 
@@ -132,83 +132,29 @@ def pdf_to_image_path(pdf_path: str) -> str:
 
 
 def build_prompt():
-    """Return the reusable system & human prompt templates."""
+    """Return the reusable system & human prompt templates optimized for TPM."""
     return ChatPromptTemplate.from_messages([
-        ("system", "You are an expert in logistics document processing. Format your output strictly as JSON for the schema provided by user/human."),
-        ("human", """
-            You are extracting structured data from Air Waybill (AWB) documents.
-
-            === CRITICAL VALIDATION RULES FOR INVOICE NUMBERS ===
-
-            INVOICE NUMBER RULES (MUST follow ALL criteria):
-            1. MUST be EXACTLY 10 digits long
-            2. MUST start with one of these EXACT prefixes:
-            - "490" (followed by 7 more digits) → Example: 4901234567
-            - "106" (followed by 7 more digits) → Example: 1067654321  
-            - "150" (followed by 7 more digits) → Example: 1509876543
-            - "1106" (followed by 6 more digits) → Example: 1106123456
-            - "1100" (followed by 6 more digits) → Example: 1100987654
-
-            3. NO hyphens, NO spaces, NO letters - ONLY digits
-            4. Total length = 10 digits (not 11, not 9, exactly 10)
-
-            === FEW-SHOT EXAMPLES ===
-
-            Example 1 - VALID Invoice Numbers:
-            - "4901234567" ✓ (starts with 490, exactly 10 digits)
-            - "1063183271" ✓ (starts with 106, exactly 10 digits)
-            - "1500998877" ✓ (starts with 150, exactly 10 digits)
-            - "1106445566" ✓ (starts with 1106, exactly 10 digits)
-            - "1100223344" ✓ (starts with 1100, exactly 10 digits)
-
-            Example 2 - INVALID (DO NOT EXTRACT as invoice):
-            - "6530957871" ✗ (starts with 653, not in allowed prefixes)
-            - "930093" ✗ (only 6 digits, too short)
-            - "12345678901" ✗ (11 digits, too long)
-            - "ABC1234567" ✗ (contains letters)
-            - "49-0123456" ✗ (contains hyphens)
-            - "ECD:25FRD92008458948A6" ✗ (alphanumeric reference, not invoice)
-
-            === EXTRACTION LOGIC ===
-
-            STEP 1: Locate all 10-digit numbers in the document
-            STEP 2: For each 10-digit number, check if it starts with: 490, 106, 150, 1106, or 1100
-            STEP 3: If YES → it's a valid invoice number
-            STEP 4: If NO → categorize as "other_reference_numbers" (if near invoice section)
-
-            STEP 5: Put ALL valid invoices (even if only one) in "invoice_numbers" list.
-                    Do NOT use any separate field for single invoice.
-
-            === OTHER FIELDS EXTRACTION RULES ===
-
-            - Shipper Name: Organization associated with Mercedes brand
-            - Shipper Address: Full address of shipper
-            - Consignee Name: Indian organization (not individual person)
-            - Consignee Address: Full address of consignee
-            - MAWB: 14 characters → format: 3 digits + 3 uppercase letters + 8 digits
-            Example: '020FRA33119542', '157ATL08613286'
-            - HAWB: 11 characters → format: 3 letters + 8 digits (remove hyphens/spaces)
-            Example: 'ABC-12345678' → return 'ABC12345678'
-            - Origin Airport: IATA code or city name
-            - Destination Airport: IATA code or city name
-            - No. of Pieces: Integer only (e.g., 5, not "5 pieces")
-            - Gross Weight: 
-            * Numeric value only (no units)
-            * Convert comma to decimal: '0,800' → '0.8', '42,000' → '42.0'
-            * Remove 'K' or 'KG': '0,800 K' → '0.8'
-            - Goods Name: General cargo description
-            - Order Number: 10 digits, format 'XX XXX XXXXX' → 'XXXXXXXXXX'
-            Example: '05 825 12011' → '0582512011'
-            - VIN Number: 17-character alphanumeric, often starts with 'W1ND'
-            Example: 'W1NDM2EB2TA039689'
-            - Other Reference Numbers: Numeric/alphanumeric strings within 3-5 lines above invoice
-            (but NOT valid invoice numbers)
-
-            === OUTPUT JSON SCHEMA ===
-
-            Return ONLY this JSON structure (no markdown, no code blocks, no explanations):
-
-            {{
+        ("system", 
+         """You are an expert in logistics document processing. Format output strictly as JSON using the schema provided. 
+         Follow these rules strictly:
+         - Invoice numbers: exactly 10 digits, starting with 490, 106, 150, 1106, or 1100. No letters, hyphens, or spaces. Example: 4901234567, 1509876543. Sample numbers that are not invoice numbers: 6530957871, 930093.
+         - MAWB: 14 characters, format 3 digits + 3 letters + 8 digits. Example: 020FRA33119542, 157ATL08613286
+         - HAWB: 11 characters, 3 letters + 8 digits; remove hyphens/spaces. Example: FRA-25630746; return -> FRA25630746
+         - Gross weight: numeric only, convert commas to decimal, remove units (K/KG).
+         - No. of Pieces: integer only (e.g., 5, not "5 pieces").
+         - Order Number: 10 digits, format 'XX XXX XXXXX' → 'XXXXXXXXXX'.
+         - VIN Number: 17-character alphanumeric, often starts with 'W1ND'.
+         - Shipper Name: organization (Mercedes brand), Shipper Address: full address.
+         - Consignee Name: Indian organization, Consignee Address: full address.
+         - Origin/Destination Airport: IATA code or city.
+         - Other reference numbers: numeric/alphanumeric strings within 3–5 lines above invoice, but not valid invoices.
+         - Extract all valid invoice numbers and other fields in the schema; if missing, use empty string, 0, or [].
+         - Return ONLY JSON, no markdown, no explanations."""
+        ),
+        ("human", 
+         """Extract structured data from this AWB document:\n\n{awb_text}\n\n
+         Return ONLY the JSON using this schema:
+         {{
             "shipper_name": "",
             "shipper_add": "",
             "consignee_name": "",
@@ -227,18 +173,10 @@ def build_prompt():
             "order_no": "",
             "vin_no": "",
             "other_reference_numbers": []
-            }}
-
-            Use "" for empty strings, [] for empty lists, 0 for missing numbers.
-            If field not found → return empty value (don't use null).
-
-            === AWB DOCUMENT CONTENT ===
-
-            {awb_text}
-
-            === EXTRACTION OUTPUT ===
-            """)
+            }}"""
+        )
     ])
+
 
 def run_model(prompt, awb_text = None, image_path = None):
     llm = ChatGroq(
@@ -290,7 +228,6 @@ if __name__ == "__main__":
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\CAP25070431_2_inv_nos.pdf")
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\spare_awb_2_inv.pdf")
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBAG_Spare_Parts_AWB.pdf")
-    extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBAG_Prod_Parts_AWB.pdf")
-    # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBUSI_AWB.PDF")
+    # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBAG_Prod_Parts_AWB.pdf")
+    extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBUSI_AWB.PDF")
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\EQS_awb.PDF")
-
