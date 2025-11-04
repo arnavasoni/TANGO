@@ -114,8 +114,8 @@ def extract_invoice(pdf_path: str) -> Invoice:
                     - Always convert such values to **standard decimal format** with a period as the decimal separator.
                     - Remove **all units** (e.g., 'KG') from the output.
                     Example:
-                        Raw: "Gross Weight: 42,000 KG"
-                        Extracted: "gross_weight": "42.0"
+                        - "Gross Weight: 2,914 KG" → "gross_weight": "2.914"
+                        - "Gross Weight: 0,800 KG" → "gross_weight": "0.8"
                 - DO NOT hallucinate values.
                 - For `order_no`: Extract a 10-digit number in the format "XX XXX XXXXX" (usually found near 'order number'). Example: '05 825 12011' or '0 5 825 12011' -> Return as '0582512011'
                 - For `vin_no`: Extract a 17-character alphanumeric string (usually near 'chassis no'), starting with 'W1ND'.
@@ -152,4 +152,3 @@ def extract_invoice(pdf_path: str) -> Invoice:
 # --------------------------
 if __name__ == "__main__":
     extract_invoice(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\EQS_inv.pdf")
-
