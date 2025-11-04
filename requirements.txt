@@ -14,3 +14,4 @@ sentence-transformers==5.0.0
 streamlit==1.46.1
 -f https://download.pytorch.org/whl/cpu/torch_stable.html
 torch==2.3.1+cpu
+pypdf==5.9.0
