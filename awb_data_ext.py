@@ -143,7 +143,7 @@ def build_prompt():
          - Gross weight: numeric only, convert commas to decimal, remove units (K/KG).
          - No. of Pieces: integer only (e.g., 5, not "5 pieces").
          - Order Number: 10 digits, format 'XX XXX XXXXX' → 'XXXXXXXXXX'. Example: '05 825 12011' -> '0582512011'.
-         - VIN Number: 17-character alphanumeric, often starts with 'W1ND'.
+         - VIN Number: 17-character alphanumeric, often starts with 'W1ND'. Example: W1NDM2EB2TA039689
          - Shipper Name: organization (Mercedes brand), Shipper Address: full address.
          - Consignee Name: Indian organization, Consignee Address: full address.
          - Origin/Destination Airport: IATA code or city.
@@ -231,6 +231,7 @@ if __name__ == "__main__":
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBAG_Prod_Parts_AWB.pdf")
     extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBUSI_AWB.PDF")
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\EQS_awb.PDF")
+
 
 
 
