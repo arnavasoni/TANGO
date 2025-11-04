@@ -70,7 +70,7 @@ def clean_awb_text(text):
     cleaned_text = " ".join(lines)
     # Optionally, collapse multiple spaces into one
     cleaned_text = ' '.join(cleaned_text.split())
-    print(f"CLEANED TEXT: {cleaned_text}")
+    print(f"CLEANED AWB TEXT:\n{cleaned_text}\n\n")
     return cleaned_text
 
 
@@ -131,25 +131,31 @@ def pdf_to_image_path(pdf_path: str) -> str:
     return img_path
 
 
+# MISSING DESCRIPTIONS IN HUMAN PROMPT
 def build_prompt():
     """Return the reusable system & human prompt templates optimized for TPM."""
     return ChatPromptTemplate.from_messages([
         ("system", 
          """You are an expert in logistics document processing. Format output strictly as JSON using the schema provided. 
          Follow these rules strictly:
-         - Invoice numbers: exactly 10 digits, starting with 490, 106, 150, 1106, or 1100. No letters, hyphens, or spaces. Example: 4901234567, 1509876543. Sample numbers that are not invoice numbers: 6530957871, 930093.
-         - MAWB: 14 characters, format 3 digits + 3 letters + 8 digits. Example: 020FRA33119542, 157ATL08613286
-         - HAWB: 11 characters, 3 letters + 8 digits; remove hyphens/spaces. Example: FRA-25630746; return -> FRA25630746
-         - Gross weight: numeric only, convert commas to decimal, remove units (K/KG).
-         - No. of Pieces: integer only (e.g., 5, not "5 pieces").
-         - Order Number: 10 digits, format 'XX XXX XXXXX' → 'XXXXXXXXXX'. Example: '05 825 12011' -> '0582512011
-         - VIN Number: 17-character alphanumeric, often starts with 'W1ND'. Example: W1NDM2EB2TA039689
-         - Shipper Name: organization (Mercedes brand), Shipper Address: full address related to Mercedes brand.
-         - Consignee Name: Indian organization, Consignee Address: full address related to Indian organization.
-         - Origin/Destination Airport: IATA code or city.
-         - Other reference numbers: numeric/alphanumeric strings within 3–5 lines above invoice, but not valid invoices.
-         - Extract all valid invoice numbers and other fields in the schema; if missing, use empty string, 0, or [].
-         - Return ONLY JSON, no markdown, no explanations."""
+         - shipper_name: Organization (return as Mercedes brand-related), shipper_add: Full address of shipper (Mercedes brand-related).
+         - consignee_name: Indian organization name (not individual person), consignee_add: Complete Indian consignee street address
+         - mawb: 14 chars (3 digits + 3 uppercase letters + 8 digits) → 020FRA33119542
+         - hawb: 11 chars (3 letters + 8 digits, remove hyphens/spaces) → FRA-25630746 becomes FRA25630746
+         - shipment_id: Document or shipment reference number (alphanumeric), tracking_no: Tracking or reference number for shipment
+         - container_number: Container/box identifier. Example: '8252540095M'
+         - invoice_numbers: exactly 10 digits, starting with 490, 106, 150, 1106, or 1100. No letters, hyphens, or spaces. Example: 4901234567, 1509876543. Sample numbers that are not invoice numbers: 6530957871, 930093.
+         - origin_airport: IATA code or city name (3-letter code preferred), destination_airport: IATA code or city name (3-letter code preferred)
+         - no_pieces: Integer only (e.g., 5, not "5 pieces")
+         - gross_weight: Numeric only; "0,800 K" → "0.8" | "42,000 KG" → "42.0" | "2,914" → "2.914"
+         - goods_name: Cargo/commodity description
+         - order_no: 10-digit continuous number. No alphabets (format "XX XXX XXXXX" → "XXXXXXXXXX") → "05 825 12011" becomes "0582512011"
+         - vin_no: 17-char alphanumeric, often starts W1ND → W1NDM2EB2TA039689
+         - other_reference_numbers: Numeric/alphanumeric strings 3-5 lines above invoice section (exclude valid invoices)
+         - Return JSON only, no markdown, no explanations
+         - Empty values: "" for strings, [] for lists, 0 for missing numbers
+         - Do NOT invent or hallucinate values
+         - Do NOT use null; use empty values per type"""
         ),
         ("human", 
          """Extract structured data from this AWB document:\n\n{awb_text}\n\n
