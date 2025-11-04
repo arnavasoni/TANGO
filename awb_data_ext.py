@@ -152,7 +152,7 @@ def build_prompt():
          - Return ONLY JSON, no markdown, no explanations."""
         ),
         ("human", 
-         """Extract structured data from this AWB document:\n\n{awb_text}\n\n
+         """Extract structured data from this AWB document:\n\n{}\n\n
          Return ONLY the JSON using this schema:
          {{
             "shipper_name": "",
@@ -231,3 +231,4 @@ if __name__ == "__main__":
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBAG_Prod_Parts_AWB.pdf")
     extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\MBUSI_AWB.PDF")
     # extract_awb(r"C:\Users\SONIARN\Desktop\EXIM Sample Docs\EQS_awb.PDF")
+
