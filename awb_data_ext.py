@@ -56,11 +56,24 @@ def extract_text_from_pdf(pdf_path: str) -> Optional[str]:
         docs = loader.load()
         awb_text = docs[0].page_content.strip()
         if awb_text:
+            print(f"AWB TEXT:\n{awb_text}")
             return awb_text
     except Exception:
         pass
 
     return None # indicates a scanned copy
+
+def clean_awb_text(text):
+    # Remove excessive newlines and spaces
+    lines = [line.strip() for line in text.splitlines() if line.strip()]
+    # Combine lines into a single paragraph or logical sections
+    cleaned_text = " ".join(lines)
+    # Optionally, collapse multiple spaces into one
+    cleaned_text = ' '.join(cleaned_text.split())
+    print(f"CLEANED TEXT: {cleaned_text}")
+    return cleaned_text
+
+
 
 def get_mime_type(ext):
     ext = ext.lower()
@@ -116,6 +129,7 @@ def pdf_to_image_path(pdf_path: str) -> str:
     img_path = os.path.splitext(pdf_path)[0] + "_page1.png"
     pix.save(img_path)
     return img_path
+
 
 def build_prompt():
     """Return the reusable system & human prompt templates."""
@@ -257,6 +271,7 @@ def extract_awb(pdf_path: str):
     awb_text = extract_text_from_pdf(pdf_path)
 
     if awb_text:
+        awb_text = clean_awb_text(awb_text)
         print("Text detected in PDF - using text-based extraction.")
         result = run_model(prompt, awb_text = awb_text)
     else:
