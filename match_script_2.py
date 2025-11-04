@@ -1,8 +1,8 @@
 import os
 import json
-from rapidfuzz import fuzz
-from sentence_transformers import SentenceTransformer
 import httpx
+import streamlit as st
+from sentence_transformers import SentenceTransformer, util
 
 from awb_data_ext import extract_awb
 from inv_data_ext import extract_invoice
@@ -15,8 +15,6 @@ custom_client = httpx.Client(verify=False)
 # ---------------------------
 # Load & cache embedding model
 # ---------------------------
-import streamlit as st
-
 @st.cache_resource
 def load_embedding_model():
     """
@@ -28,13 +26,16 @@ def load_embedding_model():
 embedding_model = load_embedding_model()
 
 # ---------------------------
-# Fuzzy similarity helper
+# Semantic similarity helper
 # ---------------------------
-def fuzzy_similarity(text1: str, text2: str) -> float:
-    """Return fuzzy similarity score 0-100"""
+def semantic_similarity(text1: str, text2: str) -> float:
+    """Return semantic similarity score 0–100 using cosine similarity"""
     if not text1 or not text2:
         return 0.0
-    return fuzz.token_set_ratio(str(text1).lower(), str(text2).lower())
+    emb1 = embedding_model.encode(text1, convert_to_tensor=True)
+    emb2 = embedding_model.encode(text2, convert_to_tensor=True)
+    score = util.cos_sim(emb1, emb2).item()
+    return float(score * 100)
 
 # ---------------------------
 # Generic matching rules
@@ -46,7 +47,7 @@ def _get(obj, key):
     return getattr(obj, key, None)
 
 def generic_match(awb, inv, thresholds=None, check_invoice=True):
-    thresholds = thresholds or {"supplier": 85, "consignee": 85, "address": 75}
+    thresholds = thresholds or {"supplier": 70, "consignee": 70, "address": 65}
 
     # Handle multiple invoice numbers in AWB
     invoice_match = True
@@ -56,9 +57,9 @@ def generic_match(awb, inv, thresholds=None, check_invoice=True):
             awb_invoices = [awb_invoices]
         invoice_match = str(_get(inv, 'invoice_number')) in [str(i) for i in awb_invoices]
 
-    supplier_score = fuzz.partial_ratio(str(_get(awb, 'shipper_name')).lower(), str(_get(inv, 'supplier_name')).lower())
-    consignee_score = fuzzy_similarity(_get(awb, 'consignee_name'), _get(inv, 'consignee_name'))
-    address_score = fuzzy_similarity(_get(awb, 'consignee_add'), _get(inv, 'consignee_add'))
+    supplier_score = semantic_similarity(str(_get(awb, 'shipper_name')), str(_get(inv, 'supplier_name')))
+    consignee_score = semantic_similarity(_get(awb, 'consignee_name'), _get(inv, 'consignee_name'))
+    address_score = semantic_similarity(_get(awb, 'consignee_add'), _get(inv, 'consignee_add'))
 
     matched = (
         invoice_match
@@ -210,4 +211,3 @@ def match_awb_with_invoices(awb_data, invoices_data_list, classification):
         "all_results": results,
         "rules": classification.get("matched_rules"),
     }
-
