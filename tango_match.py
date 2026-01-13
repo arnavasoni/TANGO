@@ -3,6 +3,9 @@ import os
 import re
 from typing import List, Dict, Any
 
+MATCH_SCOPE_SINGLE = "SINGLE"
+MATCH_SCOPE_GROUP = "GROUP"
+
 # ---- Local imports ----
 from tango_classifier import DocumentClassifier
 
@@ -77,55 +80,121 @@ def match_mbag_production_parts(awb, inv, **kwargs):
     }
 
 
+# def match_mbag_after_sales_parts(awb, inv, all_invoices=None, **kwargs):
+#     awb_inv_nums = set(str(x).strip() for x in (awb.get("invoice_numbers") or []))
+#     inv_num = str(inv.get("invoice_number", "")).strip()
+
+#     # Only consider invoices listed in the AWB
+#     is_invoice_candidate = inv_num in awb_inv_nums
+
+#     if not is_invoice_candidate:
+#         return False, {
+#             "reason": "invoice_number_not_listed_in_awb",
+#             "invoice_match": False
+#         }
+
+#     # Filter only invoices that belong to this AWB
+#     related_invoices = [
+#         i for i in all_invoices
+#         if str(i.get("invoice_number", "")).strip() in awb_inv_nums
+#     ]
+
+#     if not related_invoices:
+#         # Defensive: no matching invoices found
+#         return False, {
+#             "reason": "no_related_invoices_found",
+#             "invoice_match": True,
+#             "invoices_in_awb": list(awb_inv_nums)
+#         }
+
+#     # Aggregate pieces and weight if multiple invoices
+#     total_pieces = sum(_get(i, "no_pieces") or 0 for i in related_invoices)
+#     total_weight = sum(normalize_weight(_get(i, "gross_weight")) for i in related_invoices)
+
+#     pieces_match = int(total_pieces) == int(_get(awb, "no_pieces") or 0)
+#     weight_match = _weights_approximately_equal(
+#         normalize_weight(_get(awb, "gross_weight")),
+#         total_weight
+#     )
+
+#     all_match = pieces_match and weight_match
+
+#     return all_match, {
+#         "invoice_match": True,
+#         "pieces_match": pieces_match,
+#         "weight_match": weight_match,
+#         "invoices_in_awb": list(awb_inv_nums),
+#         "related_invoice_count": len(related_invoices),
+#         "total_pieces": total_pieces,
+#         "total_weight": total_weight
+#     }
+
 def match_mbag_after_sales_parts(awb, inv, all_invoices=None, **kwargs):
     awb_inv_nums = set(str(x).strip() for x in (awb.get("invoice_numbers") or []))
-    inv_num = str(inv.get("invoice_number", "")).strip()
-
-    # Only consider invoices listed in the AWB
-    is_invoice_candidate = inv_num in awb_inv_nums
-
-    if not is_invoice_candidate:
-        return False, {
-            "reason": "invoice_number_not_listed_in_awb",
-            "invoice_match": False
-        }
-
-    # Filter only invoices that belong to this AWB
-    related_invoices = [
-        i for i in all_invoices
-        if str(i.get("invoice_number", "")).strip() in awb_inv_nums
-    ]
-
-    if not related_invoices:
-        # Defensive: no matching invoices found
-        return False, {
-            "reason": "no_related_invoices_found",
-            "invoice_match": True,
-            "invoices_in_awb": list(awb_inv_nums)
-        }
-
-    # Aggregate pieces and weight if multiple invoices
-    total_pieces = sum(_get(i, "no_pieces") or 0 for i in related_invoices)
-    total_weight = sum(normalize_weight(_get(i, "gross_weight")) for i in related_invoices)
-
-    pieces_match = int(total_pieces) == int(_get(awb, "no_pieces") or 0)
-    weight_match = _weights_approximately_equal(
-        normalize_weight(_get(awb, "gross_weight")),
-        total_weight
+ 
+    # Decide scope dynamically
+    match_scope = (
+        MATCH_SCOPE_GROUP
+        if len(awb_inv_nums) > 1
+        else MATCH_SCOPE_SINGLE
     )
-
-    all_match = pieces_match and weight_match
-
-    return all_match, {
-        "invoice_match": True,
-        "pieces_match": pieces_match,
-        "weight_match": weight_match,
-        "invoices_in_awb": list(awb_inv_nums),
-        "related_invoice_count": len(related_invoices),
-        "total_pieces": total_pieces,
-        "total_weight": total_weight
-    }
-
+ 
+    # ------------------
+    # GROUP MODE
+    # ------------------
+    if match_scope == MATCH_SCOPE_GROUP:
+        related_invoices = [
+            i for i in all_invoices
+            if str(i.get("invoice_number", "")).strip() in awb_inv_nums
+        ]
+ 
+        if not related_invoices:
+            return False, {"reason": "no_related_invoices"}, match_scope
+ 
+        total_pieces = sum(i.get("no_pieces") or 0 for i in related_invoices)
+        total_weight = sum(normalize_weight(i.get("gross_weight")) for i in related_invoices)
+ 
+        pieces_match = total_pieces == (awb.get("no_pieces") or 0)
+        weight_match = _weights_approximately_equal(
+            normalize_weight(awb.get("gross_weight")),
+            total_weight
+        )
+ 
+        return (
+            pieces_match and weight_match,
+            {
+                "mode": "GROUP",
+                "invoice_count": len(related_invoices),
+                "total_pieces": total_pieces,
+                "total_weight": total_weight,
+                "pieces_match": pieces_match,
+                "weight_match": weight_match
+            },
+            match_scope
+        )
+ 
+    # ------------------
+    # SINGLE MODE
+    # ------------------
+    inv_num = str(inv.get("invoice_number", "")).strip()
+    if inv_num not in awb_inv_nums:
+        return False, {"reason": "invoice_not_in_awb"}, match_scope
+ 
+    pieces_match = inv.get("no_pieces") == awb.get("no_pieces")
+    weight_match = _weights_approximately_equal(
+        inv.get("gross_weight"),
+        awb.get("gross_weight")
+    )
+ 
+    return (
+        pieces_match and weight_match,
+        {
+            "mode": "SINGLE",
+            "pieces_match": pieces_match,
+            "weight_match": weight_match
+        },
+        match_scope
+    )
 
 
 
@@ -258,27 +327,37 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
         }
 
     results = []
+ 
     for inv in invoices:
         inv_core = inv["invoice"]
-        # matched, details = matcher(awb_core, inv_core, all_invoices=invoices)
-        matched, details = matcher(
+    
+        matched, details, scope = matcher(
             awb_core,
             inv_core,
             all_invoices=[i["invoice"] for i in invoices]
         )
-
-        if matched:
+    
+        if not matched:
+            continue
+    
+        if scope == MATCH_SCOPE_GROUP:
+            # Add ALL invoices referenced by the AWB once
+            for i in invoices:
+                inv_i = i["invoice"]
+                if str(inv_i.get("invoice_number")) in awb_core.get("invoice_numbers", []):
+                    results.append({
+                        "invoice_file": i["_source_file"],
+                        "invoice_number": inv_i.get("invoice_number"),
+                        "details": details
+                    })
+            break  # GROUP match handled once
+    
+        else:  # SINGLE
             results.append({
                 "invoice_file": inv["_source_file"],
-                "invoice_number": _get(inv_core, "invoice_number"),
+                "invoice_number": inv_core.get("invoice_number"),
                 "details": details
             })
-
-    return {
-        "awb_file": awb["_source_file"],
-        "classification": classification,
-        "matched_invoices": results
-    }
 
 
 # ============================================================================
