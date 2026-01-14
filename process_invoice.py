@@ -136,13 +136,14 @@ def extract_invoice_from_bytes(file_bytes: BytesIO) -> Invoice:
             Invoices may appear in different formats, with varying field names.
             Invoice number is also known as Document No.
             'Buyer' = 'Consignee', 'Bill To' = 'Consignee', 'Shipper' = 'Supplier'
-
+ 
             CRITICAL FIELD RULES:
             - Consider "Gross" weights only: European commas → decimal periods
                 - European number format: commas are decimal separators, periods are thousand separators- For example, interpret "28.877,56" as 28877.56 (twenty-eight thousand eight hundred seventy-seven point fifty-six)
                 - Strip all units (KG, kg, etc.)
             - no_pieces: integer only
             - order_no: 10-digit continuous (e.g., "05 825 12011" → "0582512011")
+            - if the field "Container Number" or "Container no." is not mentioned, look for a 10 character alphanumeric string beginning with "KNE". For example, "KNE0000630"
             - vin_no: 17-char alphanumeric starting 'W1ND'
             - Extract charges fields if present:
                Subtotal, Packing, Ex Factory, Air or Sea freight charges, FCA Charges, DGR Fee, Loading Charges,
@@ -150,7 +151,7 @@ def extract_invoice_from_bytes(file_bytes: BytesIO) -> Invoice:
             - Extract currency if mentioned (e.g., EUR, USD)
             - Missing fields → null
             - Unknown fields → other_fields dict
-
+ 
             The invoice may have charges split across pages or as carry-ons.
             Return valid JSON strictly matching the schema. Prioritize accuracy and completeness.
             """),
