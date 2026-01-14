@@ -38,7 +38,7 @@ NEXUS_API_KEY = os.getenv("NEXUS_API_KEY")
 # AWB_JSON_FOLDER = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\AWB\Processed"
 # AWB_COMBINED_OUTPUT = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
 AWB_JSON_FOLDER = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\AWB_JSON"
-AWB_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
+# AWB_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
 
 # ---------------------------
 # Gemini Nexus Client (NEW)
@@ -195,7 +195,7 @@ def process_image_with_groq(image_path):
 def build_prompt():
     return ChatPromptTemplate.from_messages([
         ("system",
-         """You are an expert in logistics document processing. Format output strictly as JSON using the schema provided. 
+         """You are an expert in logistics document processing. Format output strictly as JSON using the schema provided.
          Follow these rules strictly:
          - shipper_name: Organization (return as Mercedes brand-related), shipper_add: Full address of shipper (Mercedes brand-related). Not carrier name or address.
          - consignee_name: Indian organization name (do not consider name of individual person if present), consignee_add: Complete Indian consignee street address
