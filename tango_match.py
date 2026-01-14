@@ -13,6 +13,11 @@ from tango_classifier import DocumentClassifier
 def _get(d, key, default=None):
     return d.get(key, default) if d else default
 
+def normalize_invoice_number(x):
+    if not x:
+        return ""
+    return re.sub(r"\D", "", str(x))
+
 # def normalize_weight(w):
 #     if not w:
 #         return 0.0
@@ -53,113 +58,95 @@ def _weights_approximately_equal(a, b, tolerance=1.0):
     except:
         return False
 
+def single_result(matched, details):
+    return matched, details, MATCH_SCOPE_SINGLE
 
 # ============================================================================
 # MATCHING FUNCTIONS (directly aligned with match_script_2 logic)
 # ============================================================================
 
+# def match_mbag_production_parts(awb, inv, **kwargs):
+#     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
+#     weight_match = _weights_approximately_equal(_get(awb, 'gross_weight'), _get(inv, 'gross_weight'))
+
+#     awb_container = _get(awb, 'container_number')
+#     inv_container = _get(inv, 'container_number')
+#     awb_refs = _get(awb, 'other_reference_numbers') or []
+
+#     container_match = False
+#     if inv_container:
+#         if awb_container and awb_container == inv_container:
+#             container_match = True
+#         elif inv_container in awb_refs:
+#             container_match = True
+
+#     return pieces_match and weight_match and container_match, {
+#         "pieces_match": pieces_match,
+#         "weight_match": weight_match,
+#         "container_match": container_match
+#     }
 def match_mbag_production_parts(awb, inv, **kwargs):
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
-    weight_match = _weights_approximately_equal(_get(awb, 'gross_weight'), _get(inv, 'gross_weight'))
-
+    weight_match = _weights_approximately_equal(
+        _get(awb, 'gross_weight'),
+        _get(inv, 'gross_weight')
+    )
+ 
     awb_container = _get(awb, 'container_number')
     inv_container = _get(inv, 'container_number')
     awb_refs = _get(awb, 'other_reference_numbers') or []
-
+ 
     container_match = False
     if inv_container:
-        if awb_container and awb_container == inv_container:
-            container_match = True
-        elif inv_container in awb_refs:
-            container_match = True
-
-    return pieces_match and weight_match and container_match, {
+        container_match = (
+            awb_container == inv_container or
+            inv_container in awb_refs
+        )
+ 
+    matched = pieces_match and weight_match and container_match
+ 
+    return matched, {
         "pieces_match": pieces_match,
         "weight_match": weight_match,
         "container_match": container_match
-    }
-
-
-# def match_mbag_after_sales_parts(awb, inv, all_invoices=None, **kwargs):
-#     awb_inv_nums = set(str(x).strip() for x in (awb.get("invoice_numbers") or []))
-#     inv_num = str(inv.get("invoice_number", "")).strip()
-
-#     # Only consider invoices listed in the AWB
-#     is_invoice_candidate = inv_num in awb_inv_nums
-
-#     if not is_invoice_candidate:
-#         return False, {
-#             "reason": "invoice_number_not_listed_in_awb",
-#             "invoice_match": False
-#         }
-
-#     # Filter only invoices that belong to this AWB
-#     related_invoices = [
-#         i for i in all_invoices
-#         if str(i.get("invoice_number", "")).strip() in awb_inv_nums
-#     ]
-
-#     if not related_invoices:
-#         # Defensive: no matching invoices found
-#         return False, {
-#             "reason": "no_related_invoices_found",
-#             "invoice_match": True,
-#             "invoices_in_awb": list(awb_inv_nums)
-#         }
-
-#     # Aggregate pieces and weight if multiple invoices
-#     total_pieces = sum(_get(i, "no_pieces") or 0 for i in related_invoices)
-#     total_weight = sum(normalize_weight(_get(i, "gross_weight")) for i in related_invoices)
-
-#     pieces_match = int(total_pieces) == int(_get(awb, "no_pieces") or 0)
-#     weight_match = _weights_approximately_equal(
-#         normalize_weight(_get(awb, "gross_weight")),
-#         total_weight
-#     )
-
-#     all_match = pieces_match and weight_match
-
-#     return all_match, {
-#         "invoice_match": True,
-#         "pieces_match": pieces_match,
-#         "weight_match": weight_match,
-#         "invoices_in_awb": list(awb_inv_nums),
-#         "related_invoice_count": len(related_invoices),
-#         "total_pieces": total_pieces,
-#         "total_weight": total_weight
-#     }
+    }, MATCH_SCOPE_SINGLE
 
 def match_mbag_after_sales_parts(awb, inv, all_invoices=None, **kwargs):
-    awb_inv_nums = set(str(x).strip() for x in (awb.get("invoice_numbers") or []))
- 
-    # Decide scope dynamically
+    # awb_inv_nums = set(str(x).strip() for x in (awb.get("invoice_numbers") or []))
+
+    awb_inv_nums = set(normalize_invoice_number(x) for x in (awb.get("invoice_numbers") or []))
+
+
     match_scope = (
         MATCH_SCOPE_GROUP
         if len(awb_inv_nums) > 1
         else MATCH_SCOPE_SINGLE
     )
- 
+
     # ------------------
     # GROUP MODE
     # ------------------
     if match_scope == MATCH_SCOPE_GROUP:
+
         related_invoices = [
-            i for i in all_invoices
-            if str(i.get("invoice_number", "")).strip() in awb_inv_nums
-        ]
- 
+        i for i in all_invoices
+        if normalize_invoice_number(i.get("invoice_number")) in awb_inv_nums
+    ]
+
+
         if not related_invoices:
             return False, {"reason": "no_related_invoices"}, match_scope
- 
+
         total_pieces = sum(i.get("no_pieces") or 0 for i in related_invoices)
         total_weight = sum(normalize_weight(i.get("gross_weight")) for i in related_invoices)
- 
+
         pieces_match = total_pieces == (awb.get("no_pieces") or 0)
         weight_match = _weights_approximately_equal(
             normalize_weight(awb.get("gross_weight")),
             total_weight
         )
- 
+
+
         return (
             pieces_match and weight_match,
             {
@@ -172,20 +159,20 @@ def match_mbag_after_sales_parts(awb, inv, all_invoices=None, **kwargs):
             },
             match_scope
         )
- 
+
     # ------------------
     # SINGLE MODE
     # ------------------
     inv_num = str(inv.get("invoice_number", "")).strip()
     if inv_num not in awb_inv_nums:
         return False, {"reason": "invoice_not_in_awb"}, match_scope
- 
+
     pieces_match = inv.get("no_pieces") == awb.get("no_pieces")
     weight_match = _weights_approximately_equal(
         inv.get("gross_weight"),
         awb.get("gross_weight")
     )
- 
+
     return (
         pieces_match and weight_match,
         {
@@ -197,76 +184,89 @@ def match_mbag_after_sales_parts(awb, inv, all_invoices=None, **kwargs):
     )
 
 
-
 def match_mbag_cbu(awb, inv, **kwargs):
     vin_match = _get(awb, 'vin_no') == _get(inv, 'vin_no')
     order_match = _get(awb, 'order_no') == _get(inv, 'order_no')
-    return vin_match and order_match, {
+ 
+    matched = vin_match and order_match
+ 
+    return matched, {
         "vin_match": vin_match,
         "order_match": order_match
-    }
-
+    }, MATCH_SCOPE_SINGLE
 
 def match_mbusa_cbu(awb, inv, **kwargs):
-    shipper_add = str(_get(awb, 'shipper_add')).lower()
+    shipper_add = str(_get(awb, 'shipper_add', '')).lower()
     if not any(x in shipper_add for x in ["us", "usa", "united states"]):
-        return False, {"shipper_add_check": False}
+        return False, {"shipper_add_check": False}, MATCH_SCOPE_SINGLE
+ 
     return match_mbag_cbu(awb, inv)
-
 
 def match_mbusI(awb, inv, **kwargs):
     hawb_match = _get(awb, 'hawb') == _get(inv, 'container_number')
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
-    weight_match = _weights_approximately_equal(_get(awb, 'gross_weight'), _get(inv, 'gross_weight'))
-
-    all_match = hawb_match and pieces_match and weight_match
-    return all_match, {
+    weight_match = _weights_approximately_equal(
+        _get(awb, 'gross_weight'),
+        _get(inv, 'gross_weight')
+    )
+ 
+    matched = hawb_match and pieces_match and weight_match
+ 
+    return matched, {
         "hawb_match": hawb_match,
         "pieces_match": pieces_match,
         "weight_match": weight_match
-    }
-
+    }, MATCH_SCOPE_SINGLE
 
 def match_bbac_production_parts(awb, inv, **kwargs):
-    invoice_match = str(_get(inv, 'invoice_number')).startswith("150")
+    invoice_match = str(_get(inv, 'invoice_number', '')).startswith("150")
     hawb_match = _get(awb, 'hawb') == _get(inv, 'hawb')
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
-    weight_match = _weights_approximately_equal(_get(awb, 'gross_weight'), _get(inv, 'gross_weight'))
-
-    all_match = invoice_match and hawb_match and pieces_match and weight_match
-    return all_match, {
+    weight_match = _weights_approximately_equal(
+        _get(awb, 'gross_weight'),
+        _get(inv, 'gross_weight')
+    )
+ 
+    matched = invoice_match and hawb_match and pieces_match and weight_match
+ 
+    return matched, {
         "invoice_prefix_150": invoice_match,
         "hawb_match": hawb_match,
         "pieces_match": pieces_match,
         "weight_match": weight_match
-    }
-
+    }, MATCH_SCOPE_SINGLE
 
 def match_bbac_after_sales(awb, inv, **kwargs):
-    invoice_match = str(_get(inv, 'invoice_number')).startswith("1106")
+    invoice_match = str(_get(inv, 'invoice_number', '')).startswith("1106")
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
-    weight_match = _weights_approximately_equal(_get(awb, 'gross_weight'), _get(inv, 'gross_weight'))
-
-    all_match = invoice_match and pieces_match and weight_match
-    return all_match, {
+    weight_match = _weights_approximately_equal(
+        _get(awb, 'gross_weight'),
+        _get(inv, 'gross_weight')
+    )
+ 
+    matched = invoice_match and pieces_match and weight_match
+ 
+    return matched, {
         "invoice_prefix_1106": invoice_match,
         "pieces_match": pieces_match,
         "weight_match": weight_match
-    }
-
+    }, MATCH_SCOPE_SINGLE
 
 def match_mb_parts_logistics_apac(awb, inv, **kwargs):
-    invoice_match = str(_get(inv, 'invoice_number')).startswith("1100")
+    invoice_match = str(_get(inv, 'invoice_number', '')).startswith("1100")
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
-    weight_match = _weights_approximately_equal(_get(awb, 'gross_weight'), _get(inv, 'gross_weight'))
-
-    all_match = invoice_match and pieces_match and weight_match
-    return all_match, {
+    weight_match = _weights_approximately_equal(
+        _get(awb, 'gross_weight'),
+        _get(inv, 'gross_weight')
+    )
+ 
+    matched = invoice_match and pieces_match and weight_match
+ 
+    return matched, {
         "invoice_prefix_1100": invoice_match,
         "pieces_match": pieces_match,
         "weight_match": weight_match
-    }
-
+    }, MATCH_SCOPE_SINGLE
 
 CATEGORY_MATCHERS = {
     "MBAG Production Parts": match_mbag_production_parts,
@@ -323,42 +323,71 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
         return {
             "awb_file": awb["_source_file"],
             "error": f"No matching function for category '{category}'",
-            "matches": []
+            "matched_invoices": []
         }
 
     results = []
- 
+
+    # ------------------------------------------------
+    # FIRST: Check if this category supports GROUP
+    # ------------------------------------------------
+    dummy_invoice = invoices[0]["invoice"] if invoices else {}
+
+    matched, details, scope = matcher(
+        awb_core,
+        dummy_invoice,
+        all_invoices=[i["invoice"] for i in invoices]
+    )
+
+    # ------------------
+    # GROUP MATCH
+    # ------------------
+    if matched and scope == MATCH_SCOPE_GROUP:
+        # awb_inv_nums = set(str(x).strip() for x in (awb_core.get("invoice_numbers") or []))
+        awb_inv_nums = set(normalize_invoice_number(x) for x in (awb_core.get("invoice_numbers") or []))
+
+        for i in invoices:
+            inv_i = i["invoice"]
+            # if str(inv_i.get("invoice_number", "")).strip() in awb_inv_nums:
+            if normalize_invoice_number(inv_i.get("invoice_number")) in awb_inv_nums:
+                results.append({
+                    "invoice_file": i["_source_file"],
+                    "invoice_number": inv_i.get("invoice_number"),
+                    "details": details
+                })
+
+        return {
+            "awb_file": awb["_source_file"],
+            "classification": classification,
+            "matched_invoices": results
+        }
+
+    # ------------------
+    # SINGLE MATCH
+    # ------------------
     for inv in invoices:
         inv_core = inv["invoice"]
-    
+
         matched, details, scope = matcher(
             awb_core,
             inv_core,
             all_invoices=[i["invoice"] for i in invoices]
         )
-    
-        if not matched:
-            continue
-    
-        if scope == MATCH_SCOPE_GROUP:
-            # Add ALL invoices referenced by the AWB once
-            for i in invoices:
-                inv_i = i["invoice"]
-                if str(inv_i.get("invoice_number")) in awb_core.get("invoice_numbers", []):
-                    results.append({
-                        "invoice_file": i["_source_file"],
-                        "invoice_number": inv_i.get("invoice_number"),
-                        "details": details
-                    })
-            break  # GROUP match handled once
-    
-        else:  # SINGLE
-            results.append({
-                "invoice_file": inv["_source_file"],
-                "invoice_number": inv_core.get("invoice_number"),
-                "details": details
-            })
 
+        if not matched or scope != MATCH_SCOPE_SINGLE:
+            continue
+
+        results.append({
+            "invoice_file": inv["_source_file"],
+            "invoice_number": inv_core.get("invoice_number"),
+            "details": details
+        })
+
+    return {
+        "awb_file": awb["_source_file"],
+        "classification": classification,
+        "matched_invoices": results
+    }
 
 # ============================================================================
 # MAIN SCRIPT
