@@ -63,8 +63,9 @@ class DocumentClassifier:
             country, category = "Germany", "MBAG Production Parts"
             matched_rules.append("Shipper: Mercedes-Benz AG + InvPrefix: 490")
 
+        """HAVE CHANGED THIS"""
         # --- GERMANY: MBAG After Sales Parts ---
-        elif ("after sales-parts" in consignee or "after sales-parts" in consignee_add) and invoice_no.startswith("106"):
+        elif invoice_no.startswith("106") and ("mercedes-benz ag" in shipper or "germany" in shipper_add or "after sales-parts" in consignee or "after sales-parts" in consignee_add):
             country, category = "Germany", "MBAG After Sales Parts"
             matched_rules.append("Consignee: After Sales + InvPrefix: 106")
 
@@ -86,7 +87,7 @@ class DocumentClassifier:
                 matched_rules.append("Consignee Address: USA + HAWB match → MBUSI")
 
         # --- CHINA: BBAC Production Parts ---
-        elif "beijing" in shipper and invoice_no.startswith("150"):
+        elif ("beijing" in shipper or "shanghai" in shipper_add) and invoice_no.startswith("150"):
             country, category = "China", "BBAC Production Parts"
             matched_rules.append("Shipper: BBAC + InvPrefix: 150")
 
