@@ -63,7 +63,7 @@ class DocumentClassifier:
             country, category = "Germany", "MBAG Production Parts"
             matched_rules.append("Shipper: Mercedes-Benz AG + InvPrefix: 490")
 
-        """HAVE CHANGED THIS"""
+        # HAVE CHANGED THIS
         # --- GERMANY: MBAG After Sales Parts ---
         elif invoice_no.startswith("106") and ("mercedes-benz ag" in shipper or "germany" in shipper_add or "after sales-parts" in consignee or "after sales-parts" in consignee_add):
             country, category = "Germany", "MBAG After Sales Parts"
@@ -97,14 +97,14 @@ class DocumentClassifier:
             matched_rules.append("Shipper: MB Beijing Parts + InvPrefix: 1106")
 
         # --- SINGAPORE: MB Parts Logistics APAC ---
-        elif ("senai" in shipper_add or "malaysia" in shipper_add) and invoice_no.startswith("1100"):
+        elif ("senai" in shipper_add or "malaysia" in shipper_add or "singapore" in shipper_add) and invoice_no.startswith("1100"):
             country, category = "Singapore", "MB Parts Logistics APAC"
             matched_rules.append("Shipper: MB Parts APAC + InvPrefix: 1100")
 
         # --- Fallback by invoice prefix ---
-        elif invoice_no[:4] in self.prefix_map:
+        elif invoice_no[:3] in self.prefix_map:
             country, category = self.prefix_map[invoice_no[:4]]
-            matched_rules.append(f"Fallback prefix mapping: {invoice_no[:4]}")
+            matched_rules.append(f"Fallback prefix mapping: {invoice_no[:3]}")
 
         requires_invoice = category in self.requires_invoice_categories
 
