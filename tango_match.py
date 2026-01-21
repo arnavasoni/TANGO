@@ -333,11 +333,18 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
     # ------------------------------------------------
     dummy_invoice = invoices[0]["invoice"] if invoices else {}
 
+    # matched, details, scope = matcher(
+    #     awb_core,
+    #     dummy_invoice,
+    #     all_invoices=[i["invoice"] for i in invoices]
+    # )
+
     matched, details, scope = matcher(
         awb_core,
-        dummy_invoice,
+        {},
         all_invoices=[i["invoice"] for i in invoices]
     )
+
 
     # ------------------
     # GROUP MATCH
@@ -395,9 +402,9 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
 
 def main():
     # === USE YOUR EXACT PATHS ===
-    AWB_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
-    INV_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\invoice_all_output.txt"
-    OUT_DIR = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO"
+    AWB_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
+    INV_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
+    OUT_DIR = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
