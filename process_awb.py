@@ -7,10 +7,6 @@ from io import BytesIO
 from datetime import datetime
 from typing import Optional, List, Union
 
-# OCR requirements
-import pytesseract
-from pdf2image import convert_from_bytes
-
 from pydantic import BaseModel
 from PIL import Image
 
@@ -42,7 +38,8 @@ NEXUS_API_KEY = os.getenv("NEXUS_API_KEY")
 # AWB_JSON_FOLDER = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\AWB\Processed"
 # AWB_COMBINED_OUTPUT = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
 AWB_JSON_FOLDER = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\AWB_JSON"
-AWB_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
+# AWB_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
+AWB_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
 
 # ---------------------------
 # Gemini Nexus Client (NEW)
@@ -52,6 +49,11 @@ nexus_client = genai.Client(
     api_key=NEXUS_API_KEY
 )
 
+class Classification(BaseModel):
+    country: str
+    category: str
+    requires_invoice: bool
+    matched_rules: List[str]
 
 # ----------------------------------------
 # 1. DATA SCHEMA
@@ -166,29 +168,6 @@ def compress_image(image_path, max_width=1000, quality=60):
     img.save(compressed_path, "JPEG", quality=quality, optimize=True)
     return compressed_path
 
-# OCR function test
-def extract_text_with_ocr(pdf_bytes: BytesIO) -> Optional[str]:
-    """Extract text from scanned PDF using OCR."""
-    try:
-        # Convert first page of PDF to image
-        images = convert_from_bytes(
-            pdf_bytes.getvalue(),
-            first_page=1,
-            last_page=1,  # Only process first page for speed
-            dpi=300,      # Higher DPI for better OCR accuracy
-            fmt='jpeg'
-        )
-        
-        if not images:
-            return None
-            
-        # Use pytesseract to do OCR on the image
-        text = pytesseract.image_to_string(images[0], lang='eng')
-        return text.strip() if text.strip() else None
-        
-    except Exception as e:
-        print(f"OCR processing failed: {str(e)}")
-        return None
 
 def pdf_to_image_path(pdf_bytes):
     """Convert first page of PDF to PNG file."""
@@ -307,23 +286,14 @@ def extract_awb(pdf_path: str):
 
     prompt = build_prompt()
 
-    # Try regular entry text extraction
     text = extract_text_from_pdf_bytes(file_bytes)
-    
-    # If no text found, try OCR
     if not text:
-        print("No text found, attempting OCR on first page...")
-        file_bytes.seek(0)  # Reset file pointer
-        text = extract_text_with_ocr(file_bytes)
-
-        if not text:
-            raise RuntimeError("Failed to extract text using OCR")
-        
-        print("✓ Text extracted using OCR → Gemini extraction")
-    else:
-        print("✓ Text detected → Gemini extraction")
+        raise RuntimeError(
+            "Scanned PDFs not supported in Gemini text-only mode"
+        )
 
     cleaned = clean_awb_text(text)
+    print("✓ Text detected → Gemini extraction")
     return run_model(prompt, cleaned)
 
 
@@ -349,6 +319,11 @@ def main():
 
         # Convert Pydantic model to dictionary
         data = output.model_dump()
+
+        from tango_classifier import DocumentClassifier
+
+        classifier = DocumentClassifier()
+        data["classification"] = classifier.classify(data)
 
         # Safety check — data must be a dict
         if not isinstance(data, dict):
