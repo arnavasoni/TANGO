@@ -1,4 +1,4 @@
-# tango_classifier.py
+# 26-01-2026
 import re
 import json
 import sys
@@ -92,7 +92,9 @@ class DocumentClassifier:
             matched_rules.append("Shipper: BBAC + InvPrefix: 150")
 
         # --- CHINA: BBAC After Sales Parts ---
-        elif "parts trading" in shipper and invoice_no.startswith("1106"):
+        # CHANGED HERE 26-01-2026
+        # elif "parts trading" in shipper and invoice_no.startswith("1106"):
+        elif invoice_no.startswith("1106"):
             country, category = "China", "BBAC After Sales Parts"
             matched_rules.append("Shipper: MB Beijing Parts + InvPrefix: 1106")
 
