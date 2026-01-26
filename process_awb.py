@@ -1,3 +1,4 @@
+# 26-01-2026
 import os
 import sys
 import json
@@ -10,6 +11,9 @@ from typing import Optional, List, Union
 from pydantic import BaseModel
 from PIL import Image
 
+import pytesseract
+pytesseract.pytesseract.tesseract_cmd = r"C:\Coding\Tesseract OCR\tesseract.exe"
+
 # ---------------------------
 # LangChain
 # ---------------------------
@@ -18,12 +22,14 @@ from langchain.output_parsers import PydanticOutputParser
 from langchain.schema import BaseCache, ChatGeneration, ChatResult, SystemMessage, HumanMessage, AIMessage
 from langchain.chat_models.base import BaseChatModel
 from langchain.callbacks.base import Callbacks
+from langchain_google_genai import ChatGoogleGenerativeAI
+
 
 # ---------------------------
 # Gemini Nexus (NEW)
 # ---------------------------
-from google import genai
-from google.genai.types import HttpOptions
+# from google import genai
+# from google.genai.types import HttpOptions
 
 # ---------------------------
 # CONFIG
@@ -37,17 +43,18 @@ NEXUS_API_KEY = os.getenv("NEXUS_API_KEY")
 # Output paths
 # AWB_JSON_FOLDER = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\AWB\Processed"
 # AWB_COMBINED_OUTPUT = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
-AWB_JSON_FOLDER = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\AWB_JSON"
+AWB_JSON_FOLDER = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\AWB_JSON"
 # AWB_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\awb_all_output.txt"
 AWB_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
+# AWB_COMBINED_OUTPUT = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
 
 # ---------------------------
 # Gemini Nexus Client (NEW)
 # ---------------------------
-nexus_client = genai.Client(
-    http_options=HttpOptions(base_url=NEXUS_BASE_URL),
-    api_key=NEXUS_API_KEY
-)
+# nexus_client = genai.Client(
+#     http_options=HttpOptions(base_url=NEXUS_BASE_URL),
+#     api_key=NEXUS_API_KEY
+# )
 
 class Classification(BaseModel):
     country: str
@@ -84,31 +91,31 @@ awb_parser = PydanticOutputParser(pydantic_object=AirwayBill)
 # ---------------------------
 # 2. Gemini ↔ LangChain Adapter (NEW)
 # ---------------------------
-class NexusGeminiChat(BaseChatModel):
-    model_name: str = "gemini-2.5-pro"
+# class NexusGeminiChat(BaseChatModel):
+#     model_name: str = "gemini-2.5-pro"
 
-    def _generate(self, messages, stop=None):
-        prompt = "\n".join(
-            m.content for m in messages if isinstance(m, (SystemMessage, HumanMessage))
-        )
+#     def _generate(self, messages, stop=None):
+#         prompt = "\n".join(
+#             m.content for m in messages if isinstance(m, (SystemMessage, HumanMessage))
+#         )
 
-        response = nexus_client.models.generate_content(
-            model=self.model_name,
-            contents=[prompt],
-        )
+#         response = nexus_client.models.generate_content(
+#             model=self.model_name,
+#             contents=[prompt],
+#         )
 
-        generation = ChatGeneration(
-            message=AIMessage(content=response.text)
-        )
+#         generation = ChatGeneration(
+#             message=AIMessage(content=response.text)
+#         )
 
-        return ChatResult(generations=[generation])
+#         return ChatResult(generations=[generation])
 
-    @property
-    def _llm_type(self) -> str:
-        return "nexus-gemini"
+#     @property
+#     def _llm_type(self) -> str:
+#         return "nexus-gemini"
 
-# ✅ Rebuild model
-NexusGeminiChat.model_rebuild()
+# # ✅ Rebuild model
+# NexusGeminiChat.model_rebuild()
 
 # ----------------------------------------
 # 3. Helper Functions
@@ -147,28 +154,6 @@ def clean_awb_text(text):
     print("AWB text cleaned.\n")
     return cleaned
 
-
-def get_mime_type(ext): # ext: a file extension string (eg. ".jpg", ".png")
-    ext = ext.lower()
-    if ext in [".jpg", ".jpeg"]:
-        return "image/jpeg"
-    if ext == ".png":
-        return "image/png"
-    return "application/octet-stream" # means unknown or binary data; a safe generic fallback by many systems
-
-
-def compress_image(image_path, max_width=1000, quality=60):
-    img = Image.open(image_path).convert("RGB")
-    if img.width > max_width:
-        ratio = max_width / img.width
-        new_h = int(img.height * ratio)
-        img = img.resize((max_width, new_h), Image.LANCZOS)
-
-    compressed_path = os.path.splitext(image_path)[0] + "_compressed.jpg"
-    img.save(compressed_path, "JPEG", quality=quality, optimize=True)
-    return compressed_path
-
-
 def pdf_to_image_path(pdf_bytes):
     """Convert first page of PDF to PNG file."""
     if hasattr(pdf_bytes, "seek"): # check whether pdf_bytes has a seek method; allows the function to accept different types of input
@@ -186,14 +171,20 @@ def pdf_to_image_path(pdf_bytes):
     doc.close()
     return image_path
 
+def ocr_first_page_from_pdf(pdf_bytes: BytesIO) -> str:
+    """
+    Perform OCR on the FIRST PAGE ONLY of a scanned PDF.
+    Returns extracted text or empty string.
+    """
+    image_path = pdf_to_image_path(pdf_bytes)
 
-def process_image_with_groq(image_path):
-    with open(image_path, "rb") as f:
-        raw = f.read()
-    b64 = base64.b64encode(raw).decode()
-    mime = get_mime_type(os.path.splitext(image_path)[1])
-    return f"data:{mime};base64,{b64}"
-
+    try:
+        img = Image.open(image_path)
+        text = pytesseract.image_to_string(img, lang="eng")
+        return text.strip()
+    finally:
+        if os.path.exists(image_path):
+            os.remove(image_path)
 
 # ----------------------------------------
 # 3. Build Prompt
@@ -252,14 +243,25 @@ def build_prompt():
         )
     ])
 
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-pro",
+    google_api_key=NEXUS_API_KEY,
+    client_options={"api_endpoint": NEXUS_BASE_URL},
+    transport="rest",
+    temperature=0,
+)
 
 # ----------------------------------------
 # 5. Model Runner
 # ----------------------------------------
+# def run_model(prompt, awb_text: str):
+#     llm = NexusGeminiChat(model_name="gemini-2.5-pro")
+#     chain = prompt | llm | awb_parser
+#     return chain.invoke({"awb_text": awb_text})
 def run_model(prompt, awb_text: str):
-    llm = NexusGeminiChat(model_name="gemini-2.5-pro")
     chain = prompt | llm | awb_parser
     return chain.invoke({"awb_text": awb_text})
+
 
 
 # ----------------------------------------
@@ -287,10 +289,15 @@ def extract_awb(pdf_path: str):
     prompt = build_prompt()
 
     text = extract_text_from_pdf_bytes(file_bytes)
+    # 🧠 If no text → scanned PDF → OCR FIRST PAGE
     if not text:
-        raise RuntimeError(
-            "Scanned PDFs not supported in Gemini text-only mode"
-        )
+        print("⚠ No embedded text detected — performing OCR on first page")
+        ocr_text = ocr_first_page_from_pdf(file_bytes)
+
+        if not ocr_text:
+            raise RuntimeError("OCR failed — no text extracted from scanned PDF")
+
+        text = ocr_text
 
     cleaned = clean_awb_text(text)
     print("✓ Text detected → Gemini extraction")
