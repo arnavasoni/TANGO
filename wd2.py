@@ -5,9 +5,12 @@ from watchdog.events import FileSystemEventHandler
 import json
 
 # ---------------- CONFIG ----------------
-MATCHED_RESULTS_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\matched_results.txt"
-INVOICE_ALL_OUTPUT_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
-AWB_ALL_OUTPUT_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
+# MATCHED_RESULTS_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\matched_results.txt"
+# INVOICE_ALL_OUTPUT_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
+# AWB_ALL_OUTPUT_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
+MATCHED_RESULTS_FILE = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\matched_results.txt"
+INVOICE_ALL_OUTPUT_FILE = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
+AWB_ALL_OUTPUT_FILE = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
 
 SEPARATOR_LINE = "-" * 80
 
@@ -33,9 +36,12 @@ class MatchedResultsHandler(FileSystemEventHandler):
             self.clean_awb_output(AWB_ALL_OUTPUT_FILE)
 
     # ------------------------------------------------------------------
-    # PART 1 : MATCHED RESULTS (UNCHANGED)
+    # PART 1 : MATCHED RESULTS (FIRST WINS)
     # ------------------------------------------------------------------
     def clean_matched_file(self, file_path):
+        if not os.path.exists(file_path):
+            return
+
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
@@ -91,6 +97,9 @@ class MatchedResultsHandler(FileSystemEventHandler):
     # PART 2 : INVOICE OUTPUT (FIRST WINS)
     # ------------------------------------------------------------------
     def clean_invoice_output(self, file_path):
+        if not os.path.exists(file_path):
+            return
+
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
@@ -124,7 +133,6 @@ class MatchedResultsHandler(FileSystemEventHandler):
                     invoices[invoice_no] = data
                 else:
                     print(f"[INVOICE_OUTPUT] Removed duplicate invoice {invoice_no}")
-
             except Exception:
                 pass
 
@@ -138,6 +146,9 @@ class MatchedResultsHandler(FileSystemEventHandler):
     # PART 3 : AWB OUTPUT (FIRST / LAST TOGGLE)
     # ------------------------------------------------------------------
     def clean_awb_output(self, file_path):
+        if not os.path.exists(file_path):
+            return
+
         with open(file_path, "r", encoding="utf-8") as f:
             lines = f.readlines()
 
@@ -181,7 +192,6 @@ class MatchedResultsHandler(FileSystemEventHandler):
                         print(f"[AWB_OUTPUT] Removed earlier duplicate AWB {key}")
                     else:
                         print(f"[AWB_OUTPUT] Removed later duplicate AWB {key}")
-
             except Exception:
                 pass
 
@@ -193,13 +203,22 @@ class MatchedResultsHandler(FileSystemEventHandler):
 
 
 def start_watcher():
+    handler = MatchedResultsHandler()
+
+    # ------------------------------------------------------
+    # 🔹 INITIAL CLEANUP PASS (runs even without modifications)
+    # ------------------------------------------------------
+    print("Running initial cleanup...\n")
+    handler.clean_matched_file(MATCHED_RESULTS_FILE)
+    handler.clean_invoice_output(INVOICE_ALL_OUTPUT_FILE)
+    handler.clean_awb_output(AWB_ALL_OUTPUT_FILE)
+
     folders_to_watch = {
         os.path.dirname(MATCHED_RESULTS_FILE),
         os.path.dirname(INVOICE_ALL_OUTPUT_FILE),
         os.path.dirname(AWB_ALL_OUTPUT_FILE)
     }
 
-    handler = MatchedResultsHandler()
     observer = Observer()
 
     for folder in folders_to_watch:
