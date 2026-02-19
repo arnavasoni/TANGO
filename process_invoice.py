@@ -1,3 +1,4 @@
+# 19-02-2026
 import os
 import sys
 import json
@@ -9,11 +10,9 @@ from typing import Optional, Dict, Any, List, Union
 
 from langchain.prompts import ChatPromptTemplate
 from langchain.output_parsers import PydanticOutputParser
-from langchain.chat_models.base import BaseChatModel
-from langchain.schema import BaseCache, AIMessage, HumanMessage, SystemMessage, ChatGeneration, ChatResult
-from langchain.callbacks.base import Callbacks
-from google import genai
-from google.genai.types import HttpOptions
+
+# ✅ NEW — same as process_awb.py
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -24,17 +23,8 @@ load_dotenv()
 NEXUS_BASE_URL = "https://genai-nexus.int.api.corpinter.net"
 NEXUS_API_KEY = os.getenv("NEXUS_API_KEY")
 
-nexus_client = genai.Client(
-    http_options=HttpOptions(base_url=NEXUS_BASE_URL),
-    api_key=NEXUS_API_KEY
-)
-
 INVOICE_JSON_FOLDER = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\Invoice\Processed"
-# INVOICE_JSON_FOLDER = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\Invoice\Processed"
-# INVOICE_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\TANGO\invoice_all_output.txt"
 INVOICE_COMBINED_OUTPUT = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
-
-
 
 # ---------------------------------------------------
 # 1. DATA SCHEMA (same as inv_data_ext.py)
@@ -53,7 +43,6 @@ class Invoice(BaseModel):
     order_no: Optional[str] = None
     vin_no: Optional[str] = None
     currency: Optional[str] = None
-
     subtotal: Optional[float] = None
     packing: Optional[float] = None
     ex_factory: Optional[float] = None
@@ -65,41 +54,21 @@ class Invoice(BaseModel):
     transport_insurance: Optional[float] = None
     value_added_tax: Optional[float] = None
     total_price: Optional[float] = None
-
+ 
     other_fields: Optional[Dict[str, Any]] = {}
 
 invoice_parser = PydanticOutputParser(pydantic_object=Invoice)
 
-# ---------------------------
-# 2. Gemini ↔ LangChain Adapter (NEW)
-# ---------------------------
-class NexusGeminiChat(BaseChatModel):
-    model_name: str = "gemini-2.5-pro"
-
-    def _generate(self, messages, stop=None):
-        prompt = "\n".join(
-            m.content for m in messages
-            if isinstance(m, (SystemMessage, HumanMessage))
-        )
-
-        response = nexus_client.models.generate_content(
-            model=self.model_name,
-            contents=[prompt],
-        )
-
-        generation = ChatGeneration(
-            message=AIMessage(content=response.text)
-        )
-
-        return ChatResult(generations=[generation])
-
-    @property
-    def _llm_type(self) -> str:
-        return "nexus-gemini"
-
-
-NexusGeminiChat.model_rebuild()
-
+# ---------------------------------------------------
+# 2. Gemini model (SAME STYLE AS AWB)
+# ---------------------------------------------------
+llm = ChatGoogleGenerativeAI(
+    model="gemini-2.5-pro",
+    google_api_key=NEXUS_API_KEY,
+    client_options={"api_endpoint": NEXUS_BASE_URL},
+    transport="rest",
+    temperature=0,
+)
 
 # ---------------------------------------------------
 # 3. Helper functions
@@ -131,48 +100,129 @@ def extract_invoice_from_bytes(file_bytes: BytesIO) -> Invoice:
     # PROMPT — EXACT, UNCHANGED FROM inv_data_ext.py
     # ---------------------------------------------------
     def build_invoice_prompt():
-        return ChatPromptTemplate.from_messages(
-        [
-            ("system", """You are an expert in reading and extracting structured data from invoices.
-            Invoices may appear in different formats, with varying field names.
-            Invoice number is also known as Document No.
-            'Buyer' = 'Consignee', 'Bill To' = 'Consignee', 'Shipper' = 'Supplier'
- 
-            CRITICAL FIELD RULES:
-            - Consider "Gross" weights only: European commas → decimal periods
-                - European number format: commas are decimal separators, periods are thousand separators- For example, interpret "28.877,56" as 28877.56 (twenty-eight thousand eight hundred seventy-seven point fifty-six)
-                - Strip all units (KG, kg, etc.)
-            - no_pieces: integer only
-            - order_no: 10-digit continuous (e.g., "05 825 12011" → "0582512011")
-            - if the field "Container Number" or "Container no." is not mentioned, look for a 10 character alphanumeric string beginning with "KNE". For example, "KNE0000630"
-            - vin_no: 17-char alphanumeric starting 'W1ND'
-            - Extract charges fields if present:
-               Subtotal, Packing, Ex Factory, Air or Sea freight charges, FCA Charges, DGR Fee, Loading Charges,
-               Value CFR, Transport insurance, Value added Tax, Total Price (or Total Amount)
-            - Extract currency if mentioned (e.g., EUR, USD)
-            - Missing fields → null
-            - Unknown fields → other_fields dict
- 
-            The invoice may have charges split across pages or as carry-ons.
-            Return valid JSON strictly matching the schema. Prioritize accuracy and completeness.
-            """),
-            ("human", """
-                Invoice Text (all pages combined): 
-                {page_text}
-
-                Schema to follow:
-                {schema}
-
-                Extract all invoice-related data, including charges and currency, from the combined text and return as valid JSON matching the schema.
-                """)
-        ]
-    )
+        return ChatPromptTemplate.from_messages([
+        (
+        "system",
+        """You are a strict invoice data extraction engine.
+    
+        Extract ONLY explicitly stated values from the provided invoice text.
+        Do NOT infer, assume, calculate, or guess.
+        If a field is missing, return null.
+        Return valid JSON only. No markdown. No explanations.
+        The output MUST strictly match the provided schema.
+    
+        ---------------------------------
+        SYNONYMS
+        ---------------------------------
+        - Invoice Number = Document No.
+        - Buyer = Consignee
+        - Bill To = Consignee
+        - Shipper = Supplier
+    
+        ---------------------------------
+        DATE RULES
+        ---------------------------------
+        - Extract dates exactly as written.
+        - Return the dates in the dd-mm-yyyy format.
+    
+        ---------------------------------
+        WEIGHT RULES
+        ---------------------------------
+        - Extract GROSS weight only.
+        - European format: commas = decimal separator, periods = thousands separator.
+        Example:
+            "28.877,56 KG" → 28877.56
+        - Remove all units (KG, kg, etc.).
+        - Return numeric value only.
+        - Do NOT extract net weight.
+    
+        ---------------------------------
+        QUANTITY RULES
+        ---------------------------------
+        - no_pieces must be an integer only, count package number or number of packages.
+    
+        ---------------------------------
+        ORDER NUMBER
+        ---------------------------------
+        - order_no must be a continuous 10-digit number.
+        - Remove spaces and non-numeric characters.
+        Example:
+            "05 825 12011" → "0582512011"
+    
+        ---------------------------------
+        CONTAINER NUMBER
+        ---------------------------------
+        - If "Container Number" not explicitly labeled,
+        search for 10-character alphanumeric beginning with "KNE" or "KNA".
+    
+        ---------------------------------
+        VIN NUMBER
+        ---------------------------------
+        - vin_no must be 17-character alphanumeric starting with "W1ND".
+    
+        ---------------------------------
+        CURRENCY
+        ---------------------------------
+        - Extract currency ONLY if explicitly stated (EUR, USD, etc.).
+        - Do NOT infer currency from symbol alone unless code is written.
+    
+        ---------------------------------
+        CHARGES
+        ---------------------------------
+        Extract ONLY if explicitly present:
+    
+        - subtotal
+        - packing
+        - ex_factory
+        - air_or_sea_freight_charges
+        - fca_charges
+        - dgr_fee
+        - loading_charges
+        - value_cfr
+        - transport_insurance
+        - value_added_tax
+        - total_price
+    
+        CHARGE RULES:
+        - Extract numeric value only.
+        - Apply European normalization if needed.
+        - Do NOT calculate totals.
+        - Do NOT derive missing charges.
+        - Do NOT sum line items.
+    
+        ---------------------------------
+        OTHER FIELDS
+        ---------------------------------
+        - Any structured field not part of schema → include inside "other_fields".
+        - Do NOT invent new schema fields.
+    
+        ---------------------------------
+        MULTI-PAGE RULE
+        ---------------------------------
+        - Invoice text may span multiple pages.
+        - Charges may appear on different pages.
+        - Extract across entire combined text.
+        ---------------------------------
+    
+        Now extract invoice data using the same rules.
+        """
+        ),
+        (
+        "human",
+        """
+        Invoice Text (all pages combined):
+        {page_text}
+    
+        Return valid JSON strictly matching this schema:
+        {schema}
+        """
+        )
+    ])
 
     # ---------------------------------------------------
     # Model
     # ---------------------------------------------------
     def run_invoice_model(prompt, combined_text: str):
-        llm = NexusGeminiChat(model_name="gemini-2.5-pro")
         chain = prompt | llm | invoice_parser
         return chain.invoke({
             "page_text": combined_text,
@@ -181,7 +231,6 @@ def extract_invoice_from_bytes(file_bytes: BytesIO) -> Invoice:
 
     prompt = build_invoice_prompt()
     structured = run_invoice_model(prompt, combined_text)
-
 
     print("\nInvoice extracted successfully.\n")
     return structured
