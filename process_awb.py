@@ -1,4 +1,4 @@
-# 26-01-2026
+# 02-19-2026
 import os
 import sys
 import json
@@ -9,10 +9,14 @@ from datetime import datetime
 from typing import Optional, List, Union
 
 from pydantic import BaseModel
+import cv2
+import numpy as np
 from PIL import Image
 
 import pytesseract
-pytesseract.pytesseract.tesseract_cmd = r"C:\Coding\Tesseract OCR\tesseract.exe"
+# changed path for POC PC
+# pytesseract.pytesseract.tesseract_cmd = r"C:\Coding\Tesseract OCR\tesseract.exe"
+pytesseract.pytesseract.tesseract_cmd = r"C:\CODING\Tesseract OCR\tesseract.exe"
 
 # ---------------------------
 # LangChain
@@ -79,42 +83,16 @@ class AirwayBill(BaseModel):
     origin_airport: str
     destination_airport: str
     no_pieces: int
-    gross_weight: str
+    gross_weight: float # changed from str to float
     goods_name: Optional[str] = ""
     order_no: Optional[str] = ""
     vin_no: Optional[str] = ""
-    flight_date_2: Optional[str] = ""
+    second_flight_date: Optional[str] = ""
+    executed_on_date: Optional[str] = ""
     other_reference_numbers: Optional[List[str]] = []
 
 awb_parser = PydanticOutputParser(pydantic_object=AirwayBill)
 
-# ---------------------------
-# 2. Gemini ↔ LangChain Adapter (NEW)
-# ---------------------------
-# class NexusGeminiChat(BaseChatModel):
-#     model_name: str = "gemini-2.5-pro"
-
-#     def _generate(self, messages, stop=None):
-#         prompt = "\n".join(
-#             m.content for m in messages if isinstance(m, (SystemMessage, HumanMessage))
-#         )
-
-#         response = nexus_client.models.generate_content(
-#             model=self.model_name,
-#             contents=[prompt],
-#         )
-
-#         generation = ChatGeneration(
-#             message=AIMessage(content=response.text)
-#         )
-
-#         return ChatResult(generations=[generation])
-
-#     @property
-#     def _llm_type(self) -> str:
-#         return "nexus-gemini"
-
-# # ✅ Rebuild model
 # NexusGeminiChat.model_rebuild()
 
 # ----------------------------------------
@@ -155,69 +133,169 @@ def clean_awb_text(text):
     return cleaned
 
 def pdf_to_image_path(pdf_bytes):
-    """Convert first page of PDF to PNG file."""
-    if hasattr(pdf_bytes, "seek"): # check whether pdf_bytes has a seek method; allows the function to accept different types of input
-        pdf_bytes.seek(0) # moves read cursor to the beginning of the byte stream
-    data = pdf_bytes.read()
+    """Convert first page of PDF to high-resolution PNG file (300 DPI)."""
+    if hasattr(pdf_bytes, "seek"):
+        pdf_bytes.seek(0)
 
+    data = pdf_bytes.read()
     doc = fitz.open(stream=data, filetype="pdf")
+
     if doc.page_count == 0:
         raise ValueError("PDF has no pages")
 
     page = doc.load_page(0)
-    pix = page.get_pixmap() # renders the page as a pixmap (image) default resolution is 72 DPI unless specified otherwise
+
+    # 🔥 300 DPI rendering (major improvement)
+    zoom = 300 / 72
+    matrix = fitz.Matrix(zoom, zoom)
+    pix = page.get_pixmap(matrix=matrix)
+
     image_path = "temp_awb_page.png"
     pix.save(image_path)
+
     doc.close()
     return image_path
+
 
 def ocr_first_page_from_pdf(pdf_bytes: BytesIO) -> str:
     """
     Perform OCR on the FIRST PAGE ONLY of a scanned PDF.
-    Returns extracted text or empty string.
+    Uses 300 DPI rendering + adaptive thresholding.
     """
     image_path = pdf_to_image_path(pdf_bytes)
 
     try:
-        img = Image.open(image_path)
-        text = pytesseract.image_to_string(img, lang="eng")
+        img = cv2.imread(image_path)
+
+        # Convert to grayscale
+        gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+
+        # 🔥 Adaptive Thresholding (major improvement)
+        thresh = cv2.adaptiveThreshold(
+            gray,
+            255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            31,   # block size
+            2     # constant subtracted from mean
+        )
+
+        # OCR config optimized for structured documents
+        custom_config = r'--oem 3 --psm 6'
+
+        text = pytesseract.image_to_string(
+            thresh,
+            lang="eng",
+            config=custom_config
+        )
+
         return text.strip()
+
     finally:
         if os.path.exists(image_path):
             os.remove(image_path)
+
 
 # ----------------------------------------
 # 3. Build Prompt
 # ----------------------------------------
 def build_prompt():
     return ChatPromptTemplate.from_messages([
-        ("system",
-         """You are an expert in logistics document processing. Format output strictly as JSON using the schema provided.
-         Follow these rules strictly:
-         - shipper_name: Organization (return as Mercedes brand-related), shipper_add: Full address of shipper (Mercedes brand-related). Not carrier name or address.
-         - consignee_name: Indian organization name (do not consider name of individual person if present), consignee_add: Complete Indian consignee street address
-         - Remove all hyphens, spaces, or other separators from mawb/hawb. Ensure exact char lengths.
-         - mawb: 14 chars (3 digits + 3 uppercase letters + 8 digits) → Example: 020FRA33119542
-         - hawb: 11 chars (3 letters + 8 digits, remove hyphens/whitespaces) → Example: FRA-25630746 becomes FRA25630746
-         - shipment_id: Document or shipment reference number (alphanumeric), tracking_no: Tracking or reference number for shipment
-         - container_number: Container/box identifier. Example: '8252540095M'
-         - invoice_numbers: only include 10-digit numbers starting strictly with 106, 1100, 1106, 150, or 490. Ignore all other 10-digit numbers (e.g., 653..., 930...). Example valid: 1063194729, 1063938444. Example invalid: 6531337742, 6531355428.
-         - origin_airport: IATA code or city name (3-letter code preferred), destination_airport: IATA code or city name (3-letter code preferred)
-         - no_pieces: Integer only (e.g., 5, not "5 pieces")
-         - Convert all weights to numeric values with a dot as decimal separator. Remove all units like K, KG, LBS.
-         - gross_weight: Numeric / decimal numbers only, no units; Examples: "0,800 K" → "0.8" | "42,000 KG" → "42.0" | "2,914" → "2.914"
-         - goods_name: Cargo/commodity description
-         - order_no: Remove all spaces or non-numeric characters from order_no to ensure a continuous 10-digit number. No alphabets (format "XX XXX XXXXX" → "XXXXXXXXXX") → Example: detected "05 825 12011" becomes "0582512011"
-         - vin_no: 17-char alphanumeric, often starts W1ND → Example: W1NDM2EB2TA039689
-         - flight_date_2: Second flight date if present in document
-         - other_reference_numbers: Numeric/alphanumeric strings 3-5 lines above invoice section (exclude valid invoices)
-         - Return JSON only, no markdown, no explanations
-         - Do NOT invent or hallucinate values
-         - If a value is missing or not present, always use "" for strings, [] for lists, and 0 for numbers. Never use null."""
+    ("system",
+        """You are a strict logistics document extraction engine.
+ 
+        Extract ONLY explicitly stated values from the provided AWB text.
+        Do NOT infer, assume, or guess.
+        If a value is missing, return:
+        - "" for strings
+        - [] for arrays
+        - 0 for numbers
+        Never use null.
+        Return valid JSON only. No markdown. No explanations.
+ 
+        FIELD RULES:
+ 
+        PARTIES
+        - shipper_name: Mercedes brand-related organization only (NOT carrier).
+        - shipper_add: Full Mercedes-related shipper address.
+        - consignee_name: Indian organization name only (ignore person names).
+        - consignee_add: Full Indian consignee street address.
+ 
+        AIRWAY BILL
+        - mawb: 14 chars → 3 digits + 3 uppercase letters + 8 digits (remove all separators).
+        - hawb: 11 chars → 3 letters + 8 digits (remove hyphens/spaces).
+        - shipment_id: Shipment/document reference (alphanumeric).
+        - tracking_no: Shipment tracking/reference number.
+        - container_number: Container/box ID.
+ 
+        INVOICES
+        - invoice_numbers: Include ONLY 10-digit numbers starting strictly with:
+        106, 1100, 1106, 150, or 490.
+        Ignore all other 10-digit numbers.
+        - other_reference_numbers: Numeric/alphanumeric strings located 3–5 lines above invoice section.
+        Exclude valid invoice_numbers.
+ 
+        AIRPORTS & FLIGHTS
+        - origin_airport / destination_airport: Prefer 3-letter IATA code.
+        - second_flight_date: Format like LH8022/31.
+        If two flights exist, extract the one corresponding to the SECOND flight date.
+        - second_flight_date: Extract second flight date if present.
+        - executed_on_date: Date printed at bottom of AWB. Written around 'Executed on (date)'. Could be in different formats, return in dd-mm-yyyy
+ 
+        SHIPMENT DETAILS
+        - no_pieces: Integer only.
+        - gross_weight: Numeric only. Remove units (KG, K, LBS). Use dot as decimal separator.
+        - goods_name: Cargo description.
+ 
+        ORDER & VEHICLE
+        - order_no: Continuous 10-digit number. Remove spaces and non-numeric characters.
+        - vin_no: 17-character alphanumeric (often starts with W1ND).
+ 
+        --- FEW-SHOT EXAMPLES ---
+ 
+        Example 1:
+ 
+        AWB TEXT:
+        MAWB: 020-FRA-33119542
+        HAWB: FRA-25630746
+        Flight: LH8001
+        Flight: LH8022/31
+        Invoice: 1063194729
+        Invoice: 6531337742
+        Gross Weight: 42,000 KG
+        No. of pieces: 5
+ 
+        Expected Output:
+        {{
+        "shipper_name": "",
+        "shipper_add": "",
+        "consignee_name": "",
+        "consignee_add": "",
+        "mawb": "020FRA33119542",
+        "hawb": "FRA25630746",
+        "shipment_id": "",
+        "tracking_no": "",
+        "container_number": "",
+        "invoice_numbers": ["1063194729"],
+        "origin_airport": "",
+        "destination_airport": "",
+        "no_pieces": 5,
+        "gross_weight": 42.0,
+        "goods_name": "",
+        "order_no": "",
+        "vin_no": "",
+        "second_flight_date": "LH8022/31",
+        "executed_on_date": "16-10-2024",
+        "other_reference_numbers": []
+        }}
+ 
+        Now extract from the provided AWB text using the same rules.
+        """
         ),
         ("human",
-         """Extract structured data from this AWB document:\n
-            {awb_text}\n
+            """AWB TEXT:
+            {awb_text}
+ 
             Return ONLY JSON in this schema:
             {{
             "shipper_name": "",
@@ -233,15 +311,16 @@ def build_prompt():
             "origin_airport": "",
             "destination_airport": "",
             "no_pieces": 0,
-            "gross_weight": "",
+            "gross_weight": 0,
             "goods_name": "",
             "order_no": "",
             "vin_no": "",
-            "flight_date_2": "",
+            "second_flight_date": "",
+            "executed_on_date": "",
             "other_reference_numbers": []
-            }}"""
-        )
-    ])
+            }}
+            """)
+        ])
 
 llm = ChatGoogleGenerativeAI(
     model="gemini-2.5-pro",
