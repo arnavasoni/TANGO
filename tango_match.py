@@ -1,3 +1,4 @@
+# 19-02-2026
 import json
 import os
 import re
@@ -9,6 +10,8 @@ MATCH_SCOPE_GROUP = "GROUP"
 # ---- Local imports ----
 from tango_classifier import DocumentClassifier
 
+LOCK_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\matching.lock"
+
 # Utility (copied from shared_utils logic)
 def _get(d, key, default=None):
     return d.get(key, default) if d else default
@@ -17,14 +20,6 @@ def normalize_invoice_number(x):
     if not x:
         return ""
     return re.sub(r"\D", "", str(x))
-
-# def normalize_weight(w):
-#     if not w:
-#         return 0.0
-#     try:
-#         return float(str(w).replace(",", "").strip())
-#     except:
-#         return 0.0
 
 def normalize_weight(w):
     if not w:
@@ -65,26 +60,6 @@ def single_result(matched, details):
 # MATCHING FUNCTIONS (directly aligned with match_script_2 logic)
 # ============================================================================
 
-# def match_mbag_production_parts(awb, inv, **kwargs):
-#     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
-#     weight_match = _weights_approximately_equal(_get(awb, 'gross_weight'), _get(inv, 'gross_weight'))
-
-#     awb_container = _get(awb, 'container_number')
-#     inv_container = _get(inv, 'container_number')
-#     awb_refs = _get(awb, 'other_reference_numbers') or []
-
-#     container_match = False
-#     if inv_container:
-#         if awb_container and awb_container == inv_container:
-#             container_match = True
-#         elif inv_container in awb_refs:
-#             container_match = True
-
-#     return pieces_match and weight_match and container_match, {
-#         "pieces_match": pieces_match,
-#         "weight_match": weight_match,
-#         "container_match": container_match
-#     }
 def match_mbag_production_parts(awb, inv, **kwargs):
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
     weight_match = _weights_approximately_equal(
@@ -112,8 +87,7 @@ def match_mbag_production_parts(awb, inv, **kwargs):
     }, MATCH_SCOPE_SINGLE
 
 def match_mbag_after_sales_parts(awb, inv, all_invoices=None, **kwargs):
-    # awb_inv_nums = set(str(x).strip() for x in (awb.get("invoice_numbers") or []))
-
+    
     awb_inv_nums = set(normalize_invoice_number(x) for x in (awb.get("invoice_numbers") or []))
 
 
@@ -202,71 +176,245 @@ def match_mbusa_cbu(awb, inv, **kwargs):
  
     return match_mbag_cbu(awb, inv)
 
-def match_mbusI(awb, inv, **kwargs):
+def match_mbusI(awb, inv, all_invoices=None, **kwargs):
+    awb_inv_nums = set(
+        normalize_invoice_number(x)
+        for x in (awb.get("invoice_numbers") or [])
+    )
+
+    # GROUP
+    if len(awb_inv_nums) > 1:
+        related = [
+            i for i in (all_invoices or [])
+            if normalize_invoice_number(i.get("invoice_number")) in awb_inv_nums
+        ]
+
+        total_pieces = sum(i.get("no_pieces") or 0 for i in related)
+        total_weight = sum(normalize_weight(i.get("gross_weight")) for i in related)
+
+        pieces_match = total_pieces == (awb.get("no_pieces") or 0)
+        weight_match = _weights_approximately_equal(
+            normalize_weight(awb.get("gross_weight")),
+            total_weight
+        )
+
+        return (
+            pieces_match and weight_match,
+            {
+                "mode": "GROUP",
+                "invoice_count": len(related),
+                "pieces_match": pieces_match,
+                "weight_match": weight_match
+            },
+            MATCH_SCOPE_GROUP
+        )
+
+    # SINGLE
+    inv_num = normalize_invoice_number(inv.get("invoice_number"))
+    if awb_inv_nums and inv_num not in awb_inv_nums:
+        return False, {"reason": "invoice_not_in_awb"}, MATCH_SCOPE_SINGLE
+
     hawb_match = _get(awb, 'hawb') == _get(inv, 'container_number')
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
     weight_match = _weights_approximately_equal(
         _get(awb, 'gross_weight'),
         _get(inv, 'gross_weight')
     )
- 
-    matched = hawb_match and pieces_match and weight_match
- 
-    return matched, {
-        "hawb_match": hawb_match,
-        "pieces_match": pieces_match,
-        "weight_match": weight_match
-    }, MATCH_SCOPE_SINGLE
 
-def match_bbac_production_parts(awb, inv, **kwargs):
-    invoice_match = str(_get(inv, 'invoice_number', '')).startswith("150")
+    return (
+        hawb_match and pieces_match and weight_match,
+        {
+            "mode": "SINGLE",
+            "hawb_match": hawb_match,
+            "pieces_match": pieces_match,
+            "weight_match": weight_match
+        },
+        MATCH_SCOPE_SINGLE
+    )
+
+def match_bbac_production_parts(awb, inv, all_invoices=None, **kwargs):
+    awb_inv_nums = set(
+        normalize_invoice_number(x)
+        for x in (awb.get("invoice_numbers") or [])
+    )
+
+    # GROUP
+    if len(awb_inv_nums) > 1:
+        related = [
+            i for i in (all_invoices or [])
+            if normalize_invoice_number(i.get("invoice_number")) in awb_inv_nums
+        ]
+
+        total_pieces = sum(i.get("no_pieces") or 0 for i in related)
+        total_weight = sum(normalize_weight(i.get("gross_weight")) for i in related)
+
+        pieces_match = total_pieces == (awb.get("no_pieces") or 0)
+        weight_match = _weights_approximately_equal(
+            normalize_weight(awb.get("gross_weight")),
+            total_weight
+        )
+
+        return (
+            pieces_match and weight_match,
+            {
+                "mode": "GROUP",
+                "invoice_prefix_150": True,
+                "invoice_count": len(related),
+                "pieces_match": pieces_match,
+                "weight_match": weight_match
+            },
+            MATCH_SCOPE_GROUP
+        )
+
+    # SINGLE
+    inv_num = normalize_invoice_number(inv.get("invoice_number"))
+    if awb_inv_nums and inv_num not in awb_inv_nums:
+        return False, {"reason": "invoice_not_in_awb"}, MATCH_SCOPE_SINGLE
+
+    invoice_match = inv_num.startswith("150")
     hawb_match = _get(awb, 'hawb') == _get(inv, 'hawb')
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
     weight_match = _weights_approximately_equal(
         _get(awb, 'gross_weight'),
         _get(inv, 'gross_weight')
     )
- 
-    matched = invoice_match and hawb_match and pieces_match and weight_match
- 
-    return matched, {
-        "invoice_prefix_150": invoice_match,
-        "hawb_match": hawb_match,
-        "pieces_match": pieces_match,
-        "weight_match": weight_match
-    }, MATCH_SCOPE_SINGLE
 
-def match_bbac_after_sales(awb, inv, **kwargs):
-    invoice_match = str(_get(inv, 'invoice_number', '')).startswith("1106")
+    return (
+        invoice_match and hawb_match and pieces_match and weight_match,
+        {
+            "mode": "SINGLE",
+            "invoice_prefix_150": invoice_match,
+            "hawb_match": hawb_match,
+            "pieces_match": pieces_match,
+            "weight_match": weight_match
+        },
+        MATCH_SCOPE_SINGLE
+    )
+
+
+def match_bbac_after_sales(awb, inv, all_invoices=None, **kwargs):
+    awb_inv_nums = set(
+        normalize_invoice_number(x)
+        for x in (awb.get("invoice_numbers") or [])
+    )
+
+    # GROUP
+    if len(awb_inv_nums) > 1:
+        related = [
+            i for i in (all_invoices or [])
+            if normalize_invoice_number(i.get("invoice_number")) in awb_inv_nums
+        ]
+
+        total_pieces = sum(i.get("no_pieces") or 0 for i in related)
+        total_weight = sum(normalize_weight(i.get("gross_weight")) for i in related)
+
+        pieces_match = total_pieces == (awb.get("no_pieces") or 0)
+        weight_match = _weights_approximately_equal(
+            normalize_weight(awb.get("gross_weight")),
+            total_weight
+        )
+
+        return (
+            pieces_match and weight_match,
+            {
+                "mode": "GROUP",
+                "invoice_count": len(related),
+                "pieces_match": pieces_match,
+                "weight_match": weight_match
+            },
+            MATCH_SCOPE_GROUP
+        )
+
+    # SINGLE
+    inv_num = normalize_invoice_number(inv.get("invoice_number"))
+    if awb_inv_nums and inv_num not in awb_inv_nums:
+        return False, {"reason": "invoice_not_in_awb"}, MATCH_SCOPE_SINGLE
+
+    invoice_match = inv_num.startswith("1106")
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
     weight_match = _weights_approximately_equal(
         _get(awb, 'gross_weight'),
         _get(inv, 'gross_weight')
     )
- 
-    matched = invoice_match and pieces_match and weight_match
- 
-    return matched, {
-        "invoice_prefix_1106": invoice_match,
-        "pieces_match": pieces_match,
-        "weight_match": weight_match
-    }, MATCH_SCOPE_SINGLE
 
-def match_mb_parts_logistics_apac(awb, inv, **kwargs):
-    invoice_match = str(_get(inv, 'invoice_number', '')).startswith("1100")
+    return (
+        invoice_match and pieces_match and weight_match,
+        {
+            "mode": "SINGLE",
+            "invoice_prefix_1106": invoice_match,
+            "pieces_match": pieces_match,
+            "weight_match": weight_match
+        },
+        MATCH_SCOPE_SINGLE
+    )
+
+
+# REVISED
+def match_mb_parts_logistics_apac(awb, inv, all_invoices=None, **kwargs):
+    awb_inv_nums = set(
+        normalize_invoice_number(x)
+        for x in (awb.get("invoice_numbers") or [])
+    )
+
+    # ------------------
+    # GROUP MODE
+    # ------------------
+    if len(awb_inv_nums) > 1:
+        related = [
+            i for i in (all_invoices or [])
+            if normalize_invoice_number(i.get("invoice_number")) in awb_inv_nums
+        ]
+
+        if not related:
+            return False, {"reason": "no_related_invoices"}, MATCH_SCOPE_GROUP
+
+        total_pieces = sum(i.get("no_pieces") or 0 for i in related)
+        total_weight = sum(normalize_weight(i.get("gross_weight")) for i in related)
+
+        pieces_match = total_pieces == (awb.get("no_pieces") or 0)
+        weight_match = _weights_approximately_equal(
+            normalize_weight(awb.get("gross_weight")),
+            total_weight
+        )
+
+        return (
+            pieces_match and weight_match,
+            {
+                "mode": "GROUP",
+                "invoice_count": len(related),
+                "total_pieces": total_pieces,
+                "total_weight": total_weight,
+                "pieces_match": pieces_match,
+                "weight_match": weight_match
+            },
+            MATCH_SCOPE_GROUP
+        )
+
+    # ------------------
+    # SINGLE MODE
+    # ------------------
+    inv_num = normalize_invoice_number(inv.get("invoice_number"))
+
+    if awb_inv_nums and inv_num not in awb_inv_nums:
+        return False, {"reason": "invoice_not_in_awb"}, MATCH_SCOPE_SINGLE
+
+    invoice_match = inv_num.startswith("1100")
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
     weight_match = _weights_approximately_equal(
         _get(awb, 'gross_weight'),
         _get(inv, 'gross_weight')
     )
- 
-    matched = invoice_match and pieces_match and weight_match
- 
-    return matched, {
-        "invoice_prefix_1100": invoice_match,
-        "pieces_match": pieces_match,
-        "weight_match": weight_match
-    }, MATCH_SCOPE_SINGLE
+
+    return (
+        invoice_match and pieces_match and weight_match,
+        {
+            "mode": "SINGLE",
+            "invoice_prefix_1100": invoice_match,
+            "pieces_match": pieces_match,
+            "weight_match": weight_match
+        },
+        MATCH_SCOPE_SINGLE
+    )
 
 CATEGORY_MATCHERS = {
     "MBAG Production Parts": match_mbag_production_parts,
@@ -401,13 +549,31 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
 # ============================================================================
 
 def main():
-    # === USE YOUR EXACT PATHS ===
+    # === PATHS ===
     AWB_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
     INV_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
     OUT_DIR = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
+    previous_matches_path = os.path.join(OUT_DIR, "matched_results.json")
+
+    # ----------------------------------------------------
+    # LOAD PREVIOUS RESULTS (if any)
+    # ----------------------------------------------------
+    old_results = []
+    already_processed_awbs = set()
+
+    if os.path.exists(previous_matches_path):
+        with open(previous_matches_path, "r", encoding="utf-8") as f:
+            old_results = json.load(f)
+
+        for r in old_results:
+            already_processed_awbs.add(r.get("awb_file"))
+
+    # ----------------------------------------------------
+    # LOAD DATA (ONLY ONCE)
+    # ----------------------------------------------------
     print("Loading AWB + Invoice data...")
 
     awbs = load_json_blocks(AWB_PATH)
@@ -416,29 +582,29 @@ def main():
     print(f"Loaded {len(awbs)} AWB entries")
     print(f"Loaded {len(invoices)} Invoice entries")
 
-    all_results = []
+    # ----------------------------------------------------
+    # MATCHING
+    # ----------------------------------------------------
+    all_results = old_results.copy()
+
     for awb in awbs:
+        if awb["_source_file"] in already_processed_awbs:
+            continue  # Skip already matched AWBs
+
         result = match_awb_with_invoices(awb, invoices)
         all_results.append(result)
 
-    # === Output ===
+    # ----------------------------------------------------
+    # SAVE JSON RESULTS
+    # ----------------------------------------------------
     out_json = os.path.join(OUT_DIR, "matched_results.json")
     with open(out_json, "w", encoding="utf-8") as f:
         json.dump(all_results, f, indent=2)
 
-    # === Output JSON ===
-    out_json = os.path.join(OUT_DIR, "matched_results.json")
-    with open(out_json, "w", encoding="utf-8") as f:
-        json.dump(all_results, f, indent=2)
-
-    # === SAVE matched_results.txt (NEW) ===
-    # out_txt = os.path.join(OUT_DIR, "matched_results.txt")
-
-    # Replaced the output path of matched_results.txt to DWT_TANGO.
-
-    TXT_DIR = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
-    os.makedirs(TXT_DIR, exist_ok=True)
-    out_txt = os.path.join(TXT_DIR, "matched_results.txt")
+    # ----------------------------------------------------
+    # SAVE TXT REPORT
+    # ----------------------------------------------------
+    out_txt = os.path.join(OUT_DIR, "matched_results.txt")
 
     with open(out_txt, "w", encoding="utf-8") as f:
         for entry in all_results:
@@ -456,7 +622,12 @@ def main():
                 f.write(f"    Invoice No: {m.get('invoice_number')}\n")
                 f.write(f"    Details: {json.dumps(m.get('details', {}), indent=4)}\n")
             f.write("\n")
+
+    # ----------------------------------------------------
+    # SAVE MATCH LOG
+    # ----------------------------------------------------
     log_file = os.path.join(OUT_DIR, "match_log.txt")
+
     with open(log_file, "w", encoding="utf-8") as f:
         for r in all_results:
             f.write(f"AWB: {r['awb_file']}\n")
@@ -474,4 +645,17 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    # -------------------------------
+    # CREATE READ-LOCK
+    # -------------------------------
+    open(LOCK_FILE, "w").close()
+
+    try:
+        main()
+    finally:
+        # -------------------------------
+        # RELEASE READ-LOCK
+        # -------------------------------
+        if os.path.exists(LOCK_FILE):
+            os.remove(LOCK_FILE)
+
