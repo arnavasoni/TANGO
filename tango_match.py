@@ -1,4 +1,4 @@
-# 19-02-2026
+# 20-02-2026
 import json
 import os
 import re
@@ -61,26 +61,56 @@ def single_result(matched, details):
 # ============================================================================
 
 def match_mbag_production_parts(awb, inv, **kwargs):
+
+    # -----------------------------------------
+    # 1️⃣ Invoice enforcement (CATEGORY-SPECIFIC)
+    # -----------------------------------------
+    awb_inv_nums = set(
+        normalize_invoice_number(x)
+        for x in (awb.get("invoice_numbers") or [])
+    )
+
+    inv_num = normalize_invoice_number(inv.get("invoice_number"))
+
+    if awb_inv_nums:
+        if inv_num not in awb_inv_nums:
+            return False, {
+                "reason": "invoice_not_in_awb",
+                "invoice_match": False
+            }, MATCH_SCOPE_SINGLE
+
+    invoice_match = True if not awb_inv_nums else (inv_num in awb_inv_nums)
+
+    # -----------------------------------------
+    # 2️⃣ Physical validations
+    # -----------------------------------------
     pieces_match = _get(awb, 'no_pieces') == _get(inv, 'no_pieces')
+
     weight_match = _weights_approximately_equal(
         _get(awb, 'gross_weight'),
         _get(inv, 'gross_weight')
     )
- 
+
     awb_container = _get(awb, 'container_number')
     inv_container = _get(inv, 'container_number')
     awb_refs = _get(awb, 'other_reference_numbers') or []
- 
-    container_match = False
-    if inv_container:
+
+    # Container logic (unchanged behavior)
+    if awb_container and inv_container:
         container_match = (
             awb_container == inv_container or
             inv_container in awb_refs
         )
- 
-    matched = pieces_match and weight_match and container_match
- 
+    else:
+        container_match = True
+
+    # -----------------------------------------
+    # 3️⃣ Final decision
+    # -----------------------------------------
+    matched = invoice_match and pieces_match and weight_match and container_match
+
     return matched, {
+        "invoice_match": invoice_match,
         "pieces_match": pieces_match,
         "weight_match": weight_match,
         "container_match": container_match
@@ -568,8 +598,11 @@ def main():
         with open(previous_matches_path, "r", encoding="utf-8") as f:
             old_results = json.load(f)
 
+        # Only skip AWBs that already have MATCHES
         for r in old_results:
-            already_processed_awbs.add(r.get("awb_file"))
+            if r.get("matched_invoices"):  # only if not empty
+                already_processed_awbs.add(r.get("awb_file"))
+
 
     # ----------------------------------------------------
     # LOAD DATA (ONLY ONCE)
