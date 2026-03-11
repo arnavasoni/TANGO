@@ -1,4 +1,4 @@
-# 19-02-2026
+# 11-03-2026
 import re
 import json
 import sys
@@ -60,9 +60,9 @@ class DocumentClassifier:
         invoice_no = awb_invoice_no
 
        # --- GERMANY: MBAG Production Parts ---
-        if "mercedes-benz ag" in shipper and invoice_no.startswith("490"):
+        if "mercedes-benz ag" in shipper and (invoice_no.startswith("490") or invoice_no.startswith("400")):
             country, category = "Germany", "MBAG Production Parts"
-            matched_rules.append("Shipper: Mercedes-Benz AG + InvPrefix: 490")
+            matched_rules.append("Shipper: Mercedes-Benz AG + InvPrefix: 490/400")
 
         # HAVE CHANGED THIS
         # --- GERMANY: MBAG After Sales Parts ---
