@@ -230,14 +230,14 @@ def build_prompt():
  
         INVOICES
         - invoice_numbers: Include ONLY 10-digit numbers starting strictly with:
-        106, 1100, 1106, 150, 490, or 400. 
+        106, 1100, 1106, 150, 400 or 490.
         Ignore all other 10-digit numbers.
         - other_reference_numbers: Numeric/alphanumeric strings located 3–5 lines above invoice section.
         Exclude valid invoice_numbers.
  
         AIRPORTS & FLIGHTS
         - origin_airport / destination_airport: Prefer 3-letter IATA code.
-        - second_flight_date: Format like LH8022/31.
+        - second_flight_date: Format like LH8022/31. "Requested Flight/Date" can also be found above the required data for this field.
         If two flights exist, extract the one corresponding to the SECOND flight date.
         - second_flight_date: Extract second flight date if present.
         - executed_on_date: Date printed at bottom of AWB. Written around 'Executed on (date)'. Could be in different formats, return in dd-mm-yyyy
