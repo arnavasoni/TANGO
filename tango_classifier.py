@@ -14,6 +14,7 @@ class DocumentClassifier:
         self.vin_pattern = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b", re.IGNORECASE)
         self.prefix_map = {
             "490": ("Germany", "MBAG Production Parts"),
+            "400": ("Germany", "MBAG Production Parts"),
             "106": ("Germany", "MBAG After Sales Parts"),
             "150": ("China", "BBAC Production Parts"),
             "1106": ("China", "BBAC After Sales Parts"),
