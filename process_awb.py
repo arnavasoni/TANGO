@@ -1,4 +1,4 @@
-# 19-02-2026
+# 11-03-2026
 import os
 import sys
 import json
@@ -230,7 +230,7 @@ def build_prompt():
  
         INVOICES
         - invoice_numbers: Include ONLY 10-digit numbers starting strictly with:
-        106, 1100, 1106, 150, or 490.
+        106, 1100, 1106, 150, 490, or 400. 
         Ignore all other 10-digit numbers.
         - other_reference_numbers: Numeric/alphanumeric strings located 3–5 lines above invoice section.
         Exclude valid invoice_numbers.
