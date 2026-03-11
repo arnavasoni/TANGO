@@ -10,7 +10,8 @@ MATCH_SCOPE_GROUP = "GROUP"
 # ---- Local imports ----
 from tango_classifier import DocumentClassifier
 
-LOCK_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\matching.lock"
+# LOCK_FILE = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\matching.lock"
+LOCK_FILE = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\matching.lock"
 
 # Utility (copied from shared_utils logic)
 def _get(d, key, default=None):
@@ -490,6 +491,89 @@ def load_json_blocks(path: str) -> List[Dict[str, Any]]:
 # MATCHING ENGINE
 # ============================================================================
 
+# def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]]) -> Dict[str, Any]:
+#     awb_core = awb["awb"]
+#     classification = awb_core.get("classification", {})
+
+#     category = classification.get("category")
+#     matcher = CATEGORY_MATCHERS.get(category)
+
+#     if not matcher:
+#         return {
+#             "awb_file": awb["_source_file"],
+#             "error": f"No matching function for category '{category}'",
+#             "matched_invoices": []
+#         }
+
+#     results = []
+
+#     # ------------------------------------------------
+#     # FIRST: Check if this category supports GROUP
+#     # ------------------------------------------------
+#     dummy_invoice = invoices[0]["invoice"] if invoices else {}
+
+#     # matched, details, scope = matcher(
+#     #     awb_core,
+#     #     dummy_invoice,
+#     #     all_invoices=[i["invoice"] for i in invoices]
+#     # )
+
+#     matched, details, scope = matcher(
+#         awb_core,
+#         {},
+#         all_invoices=[i["invoice"] for i in invoices]
+#     )
+
+
+#     # ------------------
+#     # GROUP MATCH
+#     # ------------------
+#     if matched and scope == MATCH_SCOPE_GROUP:
+#         # awb_inv_nums = set(str(x).strip() for x in (awb_core.get("invoice_numbers") or []))
+#         awb_inv_nums = set(normalize_invoice_number(x) for x in (awb_core.get("invoice_numbers") or []))
+
+#         for i in invoices:
+#             inv_i = i["invoice"]
+#             # if str(inv_i.get("invoice_number", "")).strip() in awb_inv_nums:
+#             if normalize_invoice_number(inv_i.get("invoice_number")) in awb_inv_nums:
+#                 results.append({
+#                     "invoice_file": i["_source_file"],
+#                     "invoice_number": inv_i.get("invoice_number"),
+#                     "details": details
+#                 })
+
+#         return {
+#             "awb_file": awb["_source_file"],
+#             "classification": classification,
+#             "matched_invoices": results
+#         }
+
+#     # ------------------
+#     # SINGLE MATCH
+#     # ------------------
+#     for inv in invoices:
+#         inv_core = inv["invoice"]
+
+#         matched, details, scope = matcher(
+#             awb_core,
+#             inv_core,
+#             all_invoices=[i["invoice"] for i in invoices]
+#         )
+
+#         if not matched or scope != MATCH_SCOPE_SINGLE:
+#             continue
+
+#         results.append({
+#             "invoice_file": inv["_source_file"],
+#             "invoice_number": inv_core.get("invoice_number"),
+#             "details": details
+#         })
+
+#     return {
+#         "awb_file": awb["_source_file"],
+#         "classification": classification,
+#         "matched_invoices": results
+#     }
 def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]]) -> Dict[str, Any]:
     awb_core = awb["awb"]
     classification = awb_core.get("classification", {})
@@ -505,36 +589,30 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
         }
 
     results = []
+    seen_invoices = set()  # Tracks (invoice_number, invoice_file) tuples to prevent duplicates
 
     # ------------------------------------------------
     # FIRST: Check if this category supports GROUP
     # ------------------------------------------------
-    dummy_invoice = invoices[0]["invoice"] if invoices else {}
-
-    # matched, details, scope = matcher(
-    #     awb_core,
-    #     dummy_invoice,
-    #     all_invoices=[i["invoice"] for i in invoices]
-    # )
-
     matched, details, scope = matcher(
         awb_core,
-        {},
+        {},  # dummy invoice
         all_invoices=[i["invoice"] for i in invoices]
     )
-
 
     # ------------------
     # GROUP MATCH
     # ------------------
     if matched and scope == MATCH_SCOPE_GROUP:
-        # awb_inv_nums = set(str(x).strip() for x in (awb_core.get("invoice_numbers") or []))
         awb_inv_nums = set(normalize_invoice_number(x) for x in (awb_core.get("invoice_numbers") or []))
 
         for i in invoices:
             inv_i = i["invoice"]
-            # if str(inv_i.get("invoice_number", "")).strip() in awb_inv_nums:
-            if normalize_invoice_number(inv_i.get("invoice_number")) in awb_inv_nums:
+            inv_num = normalize_invoice_number(inv_i.get("invoice_number"))
+            key = (inv_num, i["_source_file"].lower())
+
+            if inv_num in awb_inv_nums and key not in seen_invoices:
+                seen_invoices.add(key)
                 results.append({
                     "invoice_file": i["_source_file"],
                     "invoice_number": inv_i.get("invoice_number"),
@@ -543,6 +621,7 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
 
         return {
             "awb_file": awb["_source_file"],
+            "hawb": awb_core.get("hawb"),
             "classification": classification,
             "matched_invoices": results
         }
@@ -552,6 +631,11 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
     # ------------------
     for inv in invoices:
         inv_core = inv["invoice"]
+        inv_num = normalize_invoice_number(inv_core.get("invoice_number"))
+        key = (inv_num, inv["_source_file"].lower())
+
+        if key in seen_invoices:
+            continue
 
         matched, details, scope = matcher(
             awb_core,
@@ -562,6 +646,8 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
         if not matched or scope != MATCH_SCOPE_SINGLE:
             continue
 
+        seen_invoices.add(key)
+
         results.append({
             "invoice_file": inv["_source_file"],
             "invoice_number": inv_core.get("invoice_number"),
@@ -570,6 +656,7 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
 
     return {
         "awb_file": awb["_source_file"],
+        "hawb": awb_core.get("hawb"),
         "classification": classification,
         "matched_invoices": results
     }
@@ -580,9 +667,12 @@ def match_awb_with_invoices(awb: Dict[str, Any], invoices: List[Dict[str, Any]])
 
 def main():
     # === PATHS ===
-    AWB_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
-    INV_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
-    OUT_DIR = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
+    # AWB_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
+    # INV_PATH = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
+    # OUT_DIR = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
+    AWB_PATH = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\awb_all_output.txt"
+    INV_PATH = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents\invoice_all_output.txt"
+    OUT_DIR = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
 
     os.makedirs(OUT_DIR, exist_ok=True)
 
@@ -612,8 +702,19 @@ def main():
     awbs = load_json_blocks(AWB_PATH)
     invoices = load_json_blocks(INV_PATH)
 
+    # ----------------------------------------------------
+    # REMOVE DUPLICATE INVOICES (same invoice number)
+    # ----------------------------------------------------
+    unique_invoices = {}
+    for inv in invoices:
+        inv_num = normalize_invoice_number(inv["invoice"].get("invoice_number"))
+        if inv_num:
+            unique_invoices[inv_num] = inv
+
+    invoices = list(unique_invoices.values())
+
     print(f"Loaded {len(awbs)} AWB entries")
-    print(f"Loaded {len(invoices)} Invoice entries")
+    print(f"Loaded {len(invoices)} UNIQUE Invoice entries")
 
     # ----------------------------------------------------
     # MATCHING
@@ -626,6 +727,12 @@ def main():
 
         result = match_awb_with_invoices(awb, invoices)
         all_results.append(result)
+    
+    all_results = {r["awb_file"]: r for r in all_results}.values()
+    all_results = list(all_results)
+
+    for r in all_results:
+        r["matched_invoices"] = list({m["invoice_number"]: m for m in r.get("matched_invoices", [])}.values())
 
     # ----------------------------------------------------
     # SAVE JSON RESULTS
@@ -642,6 +749,7 @@ def main():
     with open(out_txt, "w", encoding="utf-8") as f:
         for entry in all_results:
             f.write(f"AWB FILE: {entry['awb_file']}\n")
+            f.write(f"HAWB: {entry.get('hawb')}\n")
             f.write(f"CLASSIFICATION: {entry.get('classification')}\n")
 
             matches = entry.get("matched_invoices", [])
@@ -691,3 +799,4 @@ if __name__ == "__main__":
         # -------------------------------
         if os.path.exists(LOCK_FILE):
             os.remove(LOCK_FILE)
+
