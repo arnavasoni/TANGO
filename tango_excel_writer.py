@@ -45,10 +45,7 @@ OUTPUT_EXCEL = os.path.join(BASE_DIR, "reconciliation_output.xlsx")
 # ============================================================
 
 def load_json_blocks(path):
-    """
-    Loads multiple JSON objects separated by dashed lines
-    from .txt file.
-    """
+
     with open(path, "r", encoding="utf-8") as f:
         raw = f.read()
 
@@ -68,42 +65,36 @@ def load_json_blocks(path):
 
 
 def load_matched_results(path):
-    """
-    Loads matched results from JSON file that may be wrapped in square brackets.
-    Handles both array format and single object format.
-    """
+
     with open(path, "r", encoding="utf-8") as f:
         content = f.read().strip()
-    
-    # Remove outer square brackets if present
+
     if content.startswith('[') and content.endswith(']'):
         content = content[1:-1].strip()
-    
-    # Split by comma and clean up each JSON object
+
     objects = []
+
     if content:
-        # Split by comma but handle nested objects properly
+
         parts = []
         brace_count = 0
         current_part = ""
-        
+
         for char in content:
             if char == '{':
                 brace_count += 1
             elif char == '}':
                 brace_count -= 1
-            
+
             current_part += char
-            
-            # Split on comma only when we're at top level (brace_count == 0)
+
             if char == ',' and brace_count == 0:
-                parts.append(current_part[:-1])  # Remove the comma
+                parts.append(current_part[:-1])
                 current_part = ""
-        
-        # Add the last part
+
         if current_part.strip():
             parts.append(current_part)
-        
+
         for part in parts:
             part = part.strip()
             if part:
@@ -111,32 +102,24 @@ def load_matched_results(path):
                     objects.append(json.loads(part))
                 except json.JSONDecodeError:
                     continue
-    
+
     return objects
 
 
 def format_invoice_date(date_str):
-    """
-    Converts various date formats to dd-mm-yyyy format.
-    Examples:
-        '09 Jan 2026' -> '09-01-2026'
-        '2026-01-09' -> '09-01-2026'
-        '09/01/2026' -> '09-01-2026'
-        '09-01-2026' -> '09-01-2026'
-        'Jan 09, 2026' -> '09-01-2026'
-    """
+
     if not date_str:
         return ""
 
     date_formats = [
-        "%d %b %Y",    # 09 Jan 2026
-        "%Y-%m-%d",    # 2026-01-09
-        "%d/%m/%Y",    # 09/01/2026
-        "%d-%m-%Y",    # 09-01-2026
-        "%b %d, %Y",   # Jan 09, 2026
-        "%d %B %Y",    # 09 January 2026
-        "%m/%d/%Y",    # 01/09/2026 (US format)
-        "%m-%d-%Y",    # 01-09-2026 (US format)
+        "%d %b %Y",
+        "%Y-%m-%d",
+        "%d/%m/%Y",
+        "%d-%m-%Y",
+        "%b %d, %Y",
+        "%d %B %Y",
+        "%m/%d/%Y",
+        "%m-%d-%Y",
     ]
 
     for fmt in date_formats:
@@ -145,22 +128,85 @@ def format_invoice_date(date_str):
             return dt.strftime("%d-%m-%Y")
         except ValueError:
             continue
-    
-    # If all formats fail, return original string
+
     return date_str
 
 
 def safe_get(d, key):
-    """
-    Safely fetch key from dict.
-    Returns empty string if None.
-    """
     value = d.get(key)
     return "" if value is None else value
 
 
 # ============================================================
-# 📥 LOAD ALL DATA (ONCE)
+# 🔁 HAWB DEDUPLICATION
+# ============================================================
+
+def extract_invoice_numbers(record):
+
+    invoices = record.get("matched_invoices", [])
+
+    return sorted([
+        inv.get("invoice_number")
+        for inv in invoices
+        if inv.get("invoice_number")
+    ])
+
+
+def deduplicate_by_hawb(records):
+
+    hawb_groups = {}
+
+    for r in records:
+
+        hawb = r.get("hawb")
+
+        if hawb not in hawb_groups:
+            hawb_groups[hawb] = []
+
+        hawb_groups[hawb].append(r)
+
+    cleaned = []
+
+    for hawb, entries in hawb_groups.items():
+
+        best_entry = None
+        best_invoices = []
+
+        for entry in entries:
+
+            current_invoices = extract_invoice_numbers(entry)
+
+            if best_entry is None:
+                best_entry = entry
+                best_invoices = current_invoices
+                continue
+
+            # Case 1: identical matches
+            if current_invoices == best_invoices:
+                continue
+
+            # Case 2: previous empty, new has match
+            if not best_invoices and current_invoices:
+                best_entry = entry
+                best_invoices = current_invoices
+                continue
+
+            # Case 3: both empty
+            if not best_invoices and not current_invoices:
+                continue
+
+            # Case 4: keep entry with more invoices
+            if len(current_invoices) > len(best_invoices):
+                best_entry = entry
+                best_invoices = current_invoices
+
+        cleaned.append(best_entry)
+
+    return cleaned
+
+
+# ============================================================
+# 📥 LOAD DATA
 # ============================================================
 
 print("Loading data...")
@@ -170,22 +216,24 @@ invoices_raw = load_json_blocks(INV_PATH)
 
 matched_results = load_matched_results(MATCH_PATH)
 
+# Apply HAWB deduplication
+matched_results = deduplicate_by_hawb(matched_results)
+
 print(f"Loaded {len(awbs_raw)} AWBs")
 print(f"Loaded {len(invoices_raw)} Invoices")
-print(f"Loaded {len(matched_results)} Matching Records")
+print(f"Records after HAWB deduplication: {len(matched_results)}")
 
 
 # ============================================================
-# 🗂 BUILD LOOKUP DICTIONARIES (SOURCE OF TRUTH)
+# 🗂 BUILD LOOKUP DICTIONARIES
 # ============================================================
 
-# Key = _source_file
 awb_lookup = {a["_source_file"]: a["awb"] for a in awbs_raw}
 invoice_lookup = {i["_source_file"]: i["invoice"] for i in invoices_raw}
 
 
 # ============================================================
-# 📊 PREPARE DATA CONTAINERS
+# 📊 DATA CONTAINERS
 # ============================================================
 
 matched_rows = []
@@ -205,7 +253,6 @@ for entry in matched_results:
     awb_file = entry["awb_file"]
     matches = entry.get("matched_invoices", [])
 
-    # If no matches → skip here (handled later)
     if not matches:
         continue
 
@@ -220,20 +267,13 @@ for entry in matched_results:
 
         invoice = invoice_lookup.get(inv_file, {})
 
-        # Create ONE ROW per AWB-Invoice pair
         row = {
 
-            # ========================
-            # AWB FIELDS
-            # ========================
             "HAWB No": safe_get(awb, "hawb"),
             "FLT_NO": safe_get(awb, "second_flight_date"),
             "Date": safe_get(awb, "executed_on_date"),
             "TYPE": safe_get(awb.get("classification", {}), "category"),
 
-            # ========================
-            # INVOICE FIELDS
-            # ========================
             "PKG": safe_get(invoice, "no_pieces"),
             "GW": safe_get(invoice, "gross_weight"),
             "MBS No": safe_get(invoice, "delivery_note"),
@@ -247,9 +287,6 @@ for entry in matched_results:
             "FOB VALUE": safe_get(invoice, "value_fob"),
             "Freight Charges": safe_get(invoice, "air_or_sea_freight_charges"),
 
-            # ========================
-            # MANUAL FIELDS (EMPTY)
-            # ========================
             "CHA": "",
             "CCO_NO": "",
             "COST_CNTR": "",
@@ -287,19 +324,24 @@ for awb_file, awb in awb_lookup.items():
 # 📕 BUILD UNMATCHED INVOICES SHEET
 # ============================================================
 
+referenced_invoices = set()
+
+for entry in matched_results:
+    for m in entry.get("matched_invoices", []):
+        referenced_invoices.add(m["invoice_file"])
+
 for inv_file, invoice in invoice_lookup.items():
 
-    if inv_file in matched_invoice_files:
-        continue
+    if inv_file not in referenced_invoices:
 
-    unmatched_invoice_rows.append({
-        "Invoice No": safe_get(invoice, "invoice_number"),
-        "MBS Date": format_invoice_date(invoice.get("invoice_date")),
-        "PKG": safe_get(invoice, "no_pieces"),
-        "GW": safe_get(invoice, "gross_weight"),
-        "INVOICEVAL": safe_get(invoice, "total_price"),
-        "Currency": safe_get(invoice, "currency")
-    })
+        unmatched_invoice_rows.append({
+            "Invoice No": safe_get(invoice, "invoice_number"),
+            "MBS Date": format_invoice_date(invoice.get("invoice_date")),
+            "PKG": safe_get(invoice, "no_pieces"),
+            "GW": safe_get(invoice, "gross_weight"),
+            "INVOICEVAL": safe_get(invoice, "total_price"),
+            "Currency": safe_get(invoice, "currency")
+        })
 
 
 # ============================================================
