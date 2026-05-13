@@ -31,7 +31,8 @@ import pandas as pd
 # 📂 PATH CONFIGURATION
 # ============================================================
 
-BASE_DIR = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
+# BASE_DIR = r"C:\Users\SONIARN\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
+BASE_DIR = r"C:\Users\HEKOLLI\OneDrive - Mercedes-Benz (corpdir.onmicrosoft.com)\DWT_TANGO - Documents"
 
 AWB_PATH = os.path.join(BASE_DIR, "awb_all_output.txt")
 INV_PATH = os.path.join(BASE_DIR, "invoice_all_output.txt")
