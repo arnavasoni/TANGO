@@ -1,4 +1,4 @@
-# 11-03-2026
+# 26-01-2026
 import re
 import json
 import sys
@@ -60,8 +60,8 @@ class DocumentClassifier:
         awb_invoice_no = awb_invoice_numbers[0] if awb_invoice_numbers else ""
         invoice_no = awb_invoice_no
 
-       # --- GERMANY: MBAG Production Parts ---
-        if "mercedes-benz ag" in shipper and (invoice_no.startswith("490") or invoice_no.startswith("400")):
+        # --- GERMANY: MBAG Production Parts ---
+        if "mercedes-benz ag" in shipper and invoice_no.startswith(("490", "400")):
             country, category = "Germany", "MBAG Production Parts"
             matched_rules.append("Shipper: Mercedes-Benz AG + InvPrefix: 490/400")
 
@@ -106,9 +106,19 @@ class DocumentClassifier:
             matched_rules.append("Shipper: MB Parts APAC + InvPrefix: 1100")
 
         # --- Fallback by invoice prefix ---
-        elif invoice_no[:3] in self.prefix_map:
-            country, category = self.prefix_map[invoice_no[:4]]
-            matched_rules.append(f"Fallback prefix mapping: {invoice_no[:3]}")
+        prefix4 = invoice_no[:4]
+        prefix3 = invoice_no[:3]
+
+        if prefix4 in self.prefix_map:
+            country, category = self.prefix_map[prefix4]
+            matched_rules.append(f"Fallback prefix mapping: {prefix4}")
+
+        elif prefix3 in self.prefix_map:
+            country, category = self.prefix_map[prefix3]
+            matched_rules.append(f"Fallback prefix mapping: {prefix3}")
+        # elif invoice_no[:3] in self.prefix_map:
+        #     country, category = self.prefix_map[invoice_no[:4]]
+        #     matched_rules.append(f"Fallback prefix mapping: {invoice_no[:3]}")
 
         requires_invoice = category in self.requires_invoice_categories
 
