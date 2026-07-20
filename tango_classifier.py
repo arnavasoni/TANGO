@@ -11,7 +11,7 @@ from datetime import datetime
 # ----------------------------------------
 class DocumentClassifier:
     def __init__(self):
-        self.vin_pattern = re.compile(r"\b[A-HJ-NPR-Z0-9]{17}\b", re.IGNORECASE)
+        self.vin_pattern = re.compile(r"\b[A-HJ-NPR-Z0-9]{16,17}\b", re.IGNORECASE)
         self.prefix_map = {
             "490": ("Germany", "MBAG Production Parts"),
             "400": ("Germany", "MBAG Production Parts"),
@@ -77,7 +77,8 @@ class DocumentClassifier:
             matched_rules.append("VIN + OrderNo detected → MBAG CBU")
 
         # --- USA: MBUSA CBU ---
-        elif "mercedes benz us" in shipper and any(x in shipper_add for x in ["us", "usa", "united states"]):
+        # elif "mercedes benz-us" in shipper and any(x in shipper_add for x in ["us", "usa", "united states"]):
+        elif ("mercedes" in shipper and "benz" in shipper and "usa" in shipper):
             if self.vin_pattern.search(vin_no) and order_no:
                 country, category = "USA", "MBUSA CBU"
                 matched_rules.append("VIN + OrderNo detected → MBUSA CBU")
